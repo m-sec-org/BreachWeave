@@ -1,0 +1,52 @@
+{
+    "name": "@tch/ui-web",
+    "version": "0.0.1",
+    "private": true,
+    "type": "module",
+    "main": "src/index.ts",
+    "types": "src/index.ts",
+    "exports": {
+        ".": {
+            "types": "./src/index.ts",
+            "default": "./src/index.ts"
+        }
+    },
+    "scripts": {
+        "dev": "bun --hot src/server.ts",
+        "build": "bun run build.ts"
+    },
+    "dependencies": {
+        "@base-ui/react": "^1.3.0",
+        "@fontsource-variable/geist": "latest",
+        "@mariozechner/mini-lit": "^0.2.0",
+        "@mariozechner/pi-agent-core": "^0.65.0",
+        "@mariozechner/pi-ai": "^0.65.0",
+        "@mariozechner/pi-coding-agent": "^0.65.0",
+        "@tch/core": "workspace:*",
+        "@xyflow/react": "^12.10.2",
+        "class-variance-authority": "^0.7.1",
+        "clsx": "^2.1.1",
+        "elkjs": "^0.11.1",
+        "i18next": "^26.3.1",
+        "lit": "^3.3.1",
+        "lucide": "^0.544.0",
+        "lucide-react": "^1.7.0",
+        "pi-mcp-adapter": "workspace:*",
+        "radix-ui": "^1.5.0",
+        "react": "^19.0.0",
+        "react-dom": "^19.0.0",
+        "react-i18next": "^17.0.8",
+        "react-is": "^19.2.5",
+        "recharts": "^3.8.1",
+        "shadcn": "latest",
+        "sonner": "^2.0.7",
+        "tailwind-merge": "^3.5.0",
+        "tw-animate-css": "latest"
+    },
+    "devDependencies": {
+        "@types/react": "^19.0.0",
+        "@types/react-dom": "^19.0.0",
+        "bun-plugin-tailwind": "^0.1.2",
+        "tailwindcss": "^4.0.0"
+    }
+}

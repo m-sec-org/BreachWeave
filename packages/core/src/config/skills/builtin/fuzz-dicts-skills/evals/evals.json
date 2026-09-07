@@ -1,0 +1,23 @@
+{
+  "skill_name": "fuzz-dicts-navigator",
+  "evals": [
+    {
+      "id": 0,
+      "prompt": "目标像是一个 PHP 后台站点，我想先做目录扫描，重点看看后台、备份文件和常见漏洞路径。你从这个 fuzzDicts 仓库里帮我选字典，并给我 ffuf 命令。",
+      "expected_output": "Should recommend PHP-oriented directory dictionaries first, include a vuln-path fallback, and provide an ffuf command using repository-relative paths.",
+      "files": []
+    },
+    {
+      "id": 1,
+      "prompt": "有个 Spring Boot 风格的站，我要做 API 路径和参数 fuzz。请直接告诉我这个仓库里该用哪些字典，先小后大，顺便给出一条 API fuzz 和一条参数 fuzz 的命令。",
+      "expected_output": "Should route to apiDict, paramDict, and spring metadata, explain the sequence, and provide tool-ready commands.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "这是一个 IIS 上传点，我要测试扩展名和解析绕过。请从仓库里挑最合适的字典，按优先级排序，并说明什么时候切到更大的列表。",
+      "expected_output": "Should recommend IIS and ASP upload dictionaries before all_upload_fuzz, mention the fileExt seed file, and explain when to escalate.",
+      "files": []
+    }
+  ]
+}

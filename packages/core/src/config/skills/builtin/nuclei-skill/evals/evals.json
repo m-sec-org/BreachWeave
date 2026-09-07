@@ -1,0 +1,23 @@
+{
+  "skill_name": "nuclei-skill",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "帮我写一个 nuclei 命令，扫描 `targets.txt` 里的所有目标，只跑 high 和 critical，结果导出成 jsonl。",
+      "expected_output": "给出以 `nuclei -l targets.txt -severity high,critical -jsonl-export ...` 为核心的可执行命令，并简要说明关键参数。",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "我有一个自定义模板 `./templates/login-check.yaml`，想先验证模板，再对 `https://staging.example.com` 运行它，帮我写命令。",
+      "expected_output": "先给 `-validate -t ./templates/login-check.yaml`，再给针对单目标运行该模板的命令。",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "`nuclei` 怎么只跑 exposure 标签的模板，还要带上 Cookie `session=abc123` 去扫 `https://portal.example.com`？",
+      "expected_output": "给出带 `-tags exposure` 和 `-H 'Cookie: session=abc123'` 的单目标扫描命令，并点出这是已认证扫描。",
+      "files": []
+    }
+  ]
+}

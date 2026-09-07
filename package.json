@@ -1,0 +1,37 @@
+{
+    "name": "tch-agent",
+    "version": "0.0.1",
+    "private": true,
+    "type": "module",
+    "workspaces": [
+        "packages/*",
+        "packages/libs/*",
+        "apps/*"
+    ],
+    "scripts": {
+        "install": "bun run scripts/install.ts",
+        "start": "bun run apps/cli/src/main.ts",
+        "web": "bun run apps/cli/src/main.ts web",
+        "tui": "bun run apps/cli/src/main.ts",
+        "dev": "bun --hot apps/cli/src/main.ts web",
+        "create-user": "bun run scripts/create-user.ts",
+        "check:no-directory-imports": "bun run scripts/check-no-directory-imports.ts",
+        "build:kimi-gateway-test:linux": "bun build --compile ./scripts/test-kimi-gateway.ts --outfile ./bin/test-kimi-gateway-linux-x64 --target bun-linux-x64-baseline",
+        "build": "bun run build:linux && bun run build:macos-arm64 && bun run build:macos-x64 && bun run build:windows && cp package.json bin/",
+        "build:linux": "bun run scripts/build.ts bun-linux-x64-baseline bin/tch-agent-linux-x64",
+        "build:macos-arm64": "bun run scripts/build.ts bun-darwin-arm64 bin/tch-agent-darwin-arm64",
+        "build:macos-x64": "bun run scripts/build.ts bun-darwin-x64 bin/tch-agent-darwin-x64",
+        "build:windows": "bun run scripts/build.ts bun-windows-x64-baseline bin/tch-agent-windows-x64.exe",
+        "typecheck": "bun ./node_modules/typescript/bin/tsc --noEmit -p packages/core && bun run check:no-directory-imports"
+    },
+    "module": "index.ts",
+    "devDependencies": {
+        "@types/bun": "latest",
+        "bun-plugin-tailwind": "^0.1.2",
+        "tailwindcss": "^4.0.0"
+    },
+    "peerDependencies": {
+        "typescript": "^5"
+    },
+    "dependencies": {}
+}

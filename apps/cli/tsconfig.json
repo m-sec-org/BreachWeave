@@ -1,0 +1,19 @@
+{
+    "compilerOptions": {
+        "target": "ESNext",
+        "module": "ESNext",
+        "moduleResolution": "bundler",
+        "esModuleInterop": true,
+        "strict": true,
+        "skipLibCheck": true,
+        "composite": true,
+        "jsx": "react-jsx",
+        "paths": {
+            "@tch/core": ["../../packages/core/src/index.ts"],
+            "@tch/ui-web": ["../../packages/ui-web/src/index.ts"],
+            "@tch/ui-tui": ["../../packages/ui-tui/src/index.ts"]
+        }
+    },
+    "include": ["src", "../../packages/core/src", "../../packages/ui-web/src", "../../packages/ui-tui/src"],
+    "exclude": ["dist"]
+}

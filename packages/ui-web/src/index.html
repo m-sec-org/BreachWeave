@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>BreachWeave</title>
+        <script>
+            (function () {
+                var t = localStorage.getItem("theme") || "system"
+                if (t === "dark" || (t === "system" && matchMedia("(prefers-color-scheme: dark)").matches)) {
+                    document.documentElement.classList.add("dark")
+                }
+            })()
+        </script>
+        <script>
+            ;(function () {
+                if (!window.ResizeObserver) return
+                if (window.__tchResizeObserverPatched) return
+                window.__tchResizeObserverPatched = true
+
+                var NativeResizeObserver = window.ResizeObserver
+                window.ResizeObserver = function ResizeObserver(callback) {
+                    var frame = 0
+                    var observer = new NativeResizeObserver(function (entries, nativeObserver) {
+                        if (frame) cancelAnimationFrame(frame)
+                        frame = requestAnimationFrame(function () {
+                            frame = 0
+                            callback(entries, nativeObserver)
+                        })
+                    })
+                    var disconnect = observer.disconnect.bind(observer)
+                    observer.disconnect = function () {
+                        if (frame) cancelAnimationFrame(frame)
+                        frame = 0
+                        disconnect()
+                    }
+                    return observer
+                }
+                window.ResizeObserver.prototype = NativeResizeObserver.prototype
+            })()
+        </script>
+        <link rel="stylesheet" href="./app.css" />
+    </head>
+    <body>
+        <div id="root"></div>
+        <script type="module" src="./main.tsx"></script>
+    </body>
+</html>

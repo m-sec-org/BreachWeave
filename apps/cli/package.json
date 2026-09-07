@@ -1,0 +1,17 @@
+{
+    "name": "@tch/cli",
+    "version": "0.0.1",
+    "private": true,
+    "type": "module",
+    "main": "src/main.ts",
+    "scripts": {
+        "dev": "bun --watch src/main.ts",
+        "build": "bun build --target=bun --outdir=dist src/main.ts"
+    },
+    "dependencies": {
+        "@tch/core": "workspace:*",
+        "@tch/ui-tui": "workspace:*",
+        "@tch/ui-web": "workspace:*",
+        "commander": "^14.0.3"
+    }
+}

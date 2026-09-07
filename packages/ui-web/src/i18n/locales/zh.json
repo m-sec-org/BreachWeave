@@ -1,0 +1,69 @@
+{
+    "memory": "情报",
+    "idea": "战术",
+    "theme": {
+        "toggle": "切换主题",
+        "light": "浅色",
+        "dark": "深色",
+        "system": "跟随系统"
+    },
+    "replay": {
+        "start": "开始回溯",
+        "pause": "暂停回溯",
+        "reset": "重置回溯",
+        "waiting": "等待回溯..."
+    },
+    "flow": {
+        "agents": "Agents",
+        "time": "时间",
+        "attack-path": "攻击活动",
+        "memory-path": "情报图谱",
+        "idea-path": "战术路径链",
+        "solver-agent-collaboration": "协作动态",
+        "aggregate-view": "聚合视图",
+        "fullscreen": "全屏",
+        "exitFullscreen": "退出全屏",
+        "agentCard": {
+            "latestEvents": "最新 Events",
+            "viewAll": "查看全部 ({{count}}) ›",
+            "runtime": "",
+            "updatedAgo": ""
+        },
+        "solver": {
+            "started": "智能体介入"
+        },
+        "timeline": {
+            "solver": {
+                "started": "智能体介入",
+                "ended": "智能体结束",
+                "message": "Solver {{role}}"
+            },
+            "observer": {
+                "message": "Observer {{role}}",
+                "reminder": "效率提醒"
+            },
+            "tool": {
+                "call": "调用 {{tool}}",
+                "finished": "{{tool}} 完成",
+                "failed": "{{tool}} 失败"
+            },
+            "flag": {
+                "correct": "攻击成功",
+                "submitted": "攻击成功"
+            }
+        },
+        "item": {
+            "memory": {
+                "updated": "情报更新",
+                "added": "情报"
+            },
+            "idea": {
+                "updated": "战术更新",
+                "added": "战术"
+            }
+        }
+    },
+    "challenge": {
+        "back": "返回项目"
+    }
+}

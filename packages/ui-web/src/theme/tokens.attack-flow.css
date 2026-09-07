@@ -1,0 +1,261 @@
+/* ============================================================
+ * Attack-flow semantic color tokens
+ * Edit the :root block (light) and .dark block (dark) below
+ * to customize all colors used in the attack-flow visualizer.
+ *
+ * Token categories:
+ *   --flow-default-*    neutral / structural nodes
+ *   --flow-memory-*     memory / evidence       light: sky blue       | dark: cyber violet
+ *   --flow-idea-*       idea / route            light: light amber    | dark: cyber yellow
+ *   --flow-observer-*   observer / broadcast    light: purple         | dark: lighter violet
+ *   --flow-failure-*    failure / error / reset (red, both modes)
+ *   --flow-success-*    verified / spawned      light: emerald        | dark: cyber green
+ *   --flow-flag-*       flag found              light: mint green     | dark: cyber green
+ *   --flow-hint-*       hint                    light: violet         | dark: backtracking orange
+ *   --flow-edge-default                         light: neutral gray   | dark: cyber blue (#2493FF)
+ *   --flow-edge-*       per-category edge stroke colors
+ *   --flow-canvas-*     canvas / background colors
+ *   --flow-grid         react-flow background dot color
+ *   --flow-timeline-*   timeline panel borders and grid cells
+ *   --flow-chart-*      recharts fill colors
+ * ============================================================ */
+
+:root {
+    /* --- Default / Structural -------------------------------- */
+    --flow-default:        oklch(0.82 0 0);      /* node border  */
+    --flow-default-bg:     oklch(1 0 0);         /* node fill    */
+    --flow-default-fg:     oklch(0.13 0 0);      /* node text    */
+    --flow-default-muted:  oklch(0.44 0 0);      /* secondary text */
+    --flow-default-faint:  oklch(0.62 0 0);      /* tertiary text  */
+
+    /* --- Memory / Evidence (light blue) --------------------- */
+    --flow-memory:         oklch(0.80 0.09 235);  /* sky-300  */
+    --flow-memory-bg:      oklch(0.97 0.025 235); /* sky-50   */
+    --flow-memory-fg:      oklch(0.32 0.09 235);  /* sky-900  */
+    --flow-edge-memory:    oklch(0.55 0.15 235);  /* sky-600  */
+
+    /* --- Idea / Route (light amber) ------------------------- */
+    --flow-idea:           oklch(0.84 0.13 85);   /* amber-300 */
+    --flow-idea-bg:        oklch(0.98 0.04 90);   /* amber-50  */
+    --flow-idea-fg:        oklch(0.36 0.08 75);   /* amber-900 */
+    --flow-edge-idea:      oklch(0.72 0.16 80);   /* amber-500 */
+
+    /* --- Observer / Broadcast (purple) ----------------------- */
+    --flow-observer:       oklch(0.70 0.18 300);
+    --flow-observer-bg:    oklch(0.97 0.02 300);
+    --flow-observer-fg:    oklch(0.15 0.03 300);
+    --flow-edge-observer:  oklch(0.55 0.24 300);
+
+    /* --- Failure / Error (red) ------------------------------- */
+    --flow-failure:        oklch(0.68 0.19 25);
+    --flow-failure-bg:     oklch(0.97 0.02 25);
+    --flow-failure-fg:     oklch(0.15 0.02 25);
+    --flow-edge-failure:   oklch(0.62 0.22 25);
+
+    /* --- Success / Verified (emerald) ------------------------ */
+    --flow-success:        oklch(0.70 0.16 155);
+    --flow-success-bg:     oklch(0.97 0.03 155);
+    --flow-success-fg:     oklch(0.15 0.04 155);
+    --flow-edge-success:   oklch(0.52 0.17 155);
+
+    /* --- Flag Found (light green / mint) -------------------- */
+    --flow-flag:           oklch(0.78 0.13 160);  /* mint-300 */
+    --flow-flag-bg:        oklch(0.97 0.04 160);  /* mint-50  */
+    --flow-flag-fg:        oklch(0.32 0.09 160);  /* mint-900 */
+    --flow-edge-flag:      oklch(0.62 0.15 160);  /* mint-600 */
+
+    /* --- Hint (violet) --------------------------------------- */
+    --flow-hint:           oklch(0.65 0.22 280);
+    --flow-hint-bg:        oklch(0.97 0.02 280);
+    --flow-hint-fg:        oklch(0.15 0.03 280);
+    --flow-edge-hint:      oklch(0.55 0.24 300);
+
+    /* --- Edge / Graph --------------------------------------- */
+    --flow-edge-default:   oklch(0.38 0 0);      /* label fill + arrow  */
+    --flow-edge-soft:      oklch(0.64 0 0);      /* faint base edges    */
+    --flow-edge-spawn:     oklch(0.60 0.17 160); /* solver spawn edge   */
+
+    /* --- Canvas background ---------------------------------- */
+    --flow-canvas-bg:      oklch(0.985 0 0);     /* #f8fafc equivalent  */
+    --flow-canvas-glow-1:  rgba(148, 163, 184, 0.10);
+    --flow-canvas-glow-2:  rgba(56, 189, 248, 0.10);
+
+    /* --- Grid dots ------------------------------------------ */
+    --flow-grid:           rgba(100, 116, 139, 0.18);
+
+    /* --- Timeline / Knowledge panel borders ----------------- */
+    --flow-timeline-border:          oklch(0.93 0.03 240); /* blue-100  */
+    --flow-timeline-cell-bg:         oklch(0.99 0.005 240 / 0.72);
+    --flow-timeline-cell-header-bg:  oklch(0.97 0.015 240 / 0.85);
+    --flow-timeline-cell-border:     oklch(0.90 0.025 240);
+    --flow-knowledge-border:         oklch(0.93 0.02 280); /* violet-100 */
+
+    /* --- Selected node ring --------------------------------- */
+    --flow-selected-ring:  oklch(0.68 0.17 210); /* sky-400    */
+
+    /* --- Recharts fill colors ------------------------------- */
+    --flow-chart-primary:  oklch(0.45 0.20 240); /* blue-600   */
+    --flow-chart-success:  oklch(0.52 0.17 155); /* green-600  */
+    --flow-chart-pending:  oklch(0.45 0.22 300); /* violet-700 */
+    --flow-chart-warning:  oklch(0.62 0.21 48);  /* orange-600 */
+    --flow-chart-teal:     oklch(0.48 0.14 195); /* teal-700   */
+    --flow-chart-neutral:  oklch(0.82 0 0);      /* zinc-300   */
+}
+
+/* --- Dark mode overrides (Cyber Dashboard palette) ---------- */
+/* Reference: deep navy canvas + cyber blue flow + vivid semantic accents.
+ * Memory becomes violet, hint becomes backtracking orange,
+ * edge default switches from neutral gray to cyber blue.
+ */
+.dark {
+    /* --- Default / Card ------------------------------------ */
+    --flow-default:        #334A6A;                  /* card border */
+    --flow-default-bg:     #0F1C2D;                  /* card bg */
+    --flow-default-fg:     #F8FAFC;                  /* title text */
+    --flow-default-muted:  #B8C5D6;                  /* body text */
+    --flow-default-faint:  #7E8DA3;                  /* secondary text */
+
+    /* --- Memory (cyber violet) ----------------------------- */
+    --flow-memory:         #A78BFA;
+    --flow-memory-bg:      oklch(0.22 0.05 295);
+    --flow-memory-fg:      #E9D5FF;
+    --flow-edge-memory:    #A78BFA;
+
+    /* --- Idea (cyber yellow) ------------------------------- */
+    --flow-idea:           #FACC15;
+    --flow-idea-bg:        oklch(0.24 0.05 90);
+    --flow-idea-fg:        #FEF3C7;
+    --flow-edge-idea:      #FACC15;
+
+    /* --- Observer / Broadcast (lighter violet) ------------- */
+    --flow-observer:       #C084FC;
+    --flow-observer-bg:    oklch(0.22 0.06 300);
+    --flow-observer-fg:    #F3E8FF;
+    --flow-edge-observer:  #C084FC;
+
+    /* --- Failure / Reset (cyber red) ----------------------- */
+    --flow-failure:        #EF4444;
+    --flow-failure-bg:     oklch(0.22 0.07 25);
+    --flow-failure-fg:     #FEE2E2;
+    --flow-edge-failure:   #EF4444;
+
+    /* --- Success / Verified (cyber green) ------------------ */
+    --flow-success:        #22C55E;
+    --flow-success-bg:     oklch(0.24 0.06 150);
+    --flow-success-fg:     #D1FAE5;
+    --flow-edge-success:   #22C55E;
+
+    /* --- Flag Found (cyber green) -------------------------- */
+    --flow-flag:           #22C55E;
+    --flow-flag-bg:        oklch(0.24 0.06 150);
+    --flow-flag-fg:        #D1FAE5;
+    --flow-edge-flag:      #22C55E;
+
+    /* --- Hint / Backtracking (cyber orange) ---------------- */
+    --flow-hint:           #F59E0B;
+    --flow-hint-bg:        oklch(0.24 0.06 70);
+    --flow-hint-fg:        #FEF3C7;
+    --flow-edge-hint:      #F59E0B;
+
+    /* --- Edge / Graph -------------------------------------- */
+    --flow-edge-default:   #2493FF;                  /* normal flow blue */
+    --flow-edge-soft:      #334A6A;                  /* faint base edge */
+    --flow-edge-spawn:     #3BA7FF;                  /* highlight flow */
+
+    /* --- Canvas background --------------------------------- */
+    --flow-canvas-bg:      #050B16;
+    --flow-canvas-glow-1:  rgba(36, 147, 255, 0.06);
+    --flow-canvas-glow-2:  rgba(167, 139, 250, 0.04);
+
+    /* --- Grid dots ----------------------------------------- */
+    --flow-grid:           #152238;
+
+    /* --- Timeline / Knowledge panel borders ---------------- */
+    --flow-timeline-border:          #152238;
+    --flow-timeline-cell-bg:         #0F1C2D;
+    --flow-timeline-cell-header-bg:  #132236;
+    --flow-timeline-cell-border:     #1E3048;
+    --flow-knowledge-border:         #152238;
+
+    /* --- Selected node ring -------------------------------- */
+    --flow-selected-ring:  #4EA8FF;
+
+    /* --- Recharts fill colors ------------------------------ */
+    --flow-chart-primary:  #2493FF;
+    --flow-chart-success:  #22C55E;
+    --flow-chart-pending:  #A78BFA;
+    --flow-chart-warning:  #F59E0B;
+    --flow-chart-teal:     #06B6D4;
+    --flow-chart-neutral:  #5B6575;
+}
+
+/* --- Tailwind v4 theme mapping ------------------------------ */
+@theme inline {
+    --color-flow-default:          var(--flow-default);
+    --color-flow-default-bg:       var(--flow-default-bg);
+    --color-flow-default-fg:       var(--flow-default-fg);
+    --color-flow-default-muted:    var(--flow-default-muted);
+    --color-flow-default-faint:    var(--flow-default-faint);
+
+    --color-flow-memory:           var(--flow-memory);
+    --color-flow-memory-bg:        var(--flow-memory-bg);
+    --color-flow-memory-fg:        var(--flow-memory-fg);
+    --color-flow-edge-memory:      var(--flow-edge-memory);
+
+    --color-flow-idea:             var(--flow-idea);
+    --color-flow-idea-bg:          var(--flow-idea-bg);
+    --color-flow-idea-fg:          var(--flow-idea-fg);
+    --color-flow-edge-idea:        var(--flow-edge-idea);
+
+    --color-flow-observer:         var(--flow-observer);
+    --color-flow-observer-bg:      var(--flow-observer-bg);
+    --color-flow-observer-fg:      var(--flow-observer-fg);
+    --color-flow-edge-observer:    var(--flow-edge-observer);
+
+    --color-flow-failure:          var(--flow-failure);
+    --color-flow-failure-bg:       var(--flow-failure-bg);
+    --color-flow-failure-fg:       var(--flow-failure-fg);
+    --color-flow-edge-failure:     var(--flow-edge-failure);
+
+    --color-flow-success:          var(--flow-success);
+    --color-flow-success-bg:       var(--flow-success-bg);
+    --color-flow-success-fg:       var(--flow-success-fg);
+    --color-flow-edge-success:     var(--flow-edge-success);
+
+    --color-flow-flag:             var(--flow-flag);
+    --color-flow-flag-bg:          var(--flow-flag-bg);
+    --color-flow-flag-fg:          var(--flow-flag-fg);
+    --color-flow-edge-flag:        var(--flow-edge-flag);
+
+    --color-flow-hint:             var(--flow-hint);
+    --color-flow-hint-bg:          var(--flow-hint-bg);
+    --color-flow-hint-fg:          var(--flow-hint-fg);
+    --color-flow-edge-hint:        var(--flow-edge-hint);
+
+    --color-flow-edge-default:     var(--flow-edge-default);
+    --color-flow-edge-soft:        var(--flow-edge-soft);
+    --color-flow-edge-spawn:       var(--flow-edge-spawn);
+
+    --color-flow-canvas-bg:        var(--flow-canvas-bg);
+    --color-flow-grid:             var(--flow-grid);
+    --color-flow-timeline-border:        var(--flow-timeline-border);
+    --color-flow-timeline-cell-bg:       var(--flow-timeline-cell-bg);
+    --color-flow-timeline-cell-header-bg: var(--flow-timeline-cell-header-bg);
+    --color-flow-timeline-cell-border:   var(--flow-timeline-cell-border);
+    --color-flow-knowledge-border:       var(--flow-knowledge-border);
+    --color-flow-selected-ring:    var(--flow-selected-ring);
+}
+
+/* --- Canvas background utility classes ---------------------- */
+.flow-canvas-bg {
+    background:
+        radial-gradient(circle at 12% 12%, var(--flow-canvas-glow-1), transparent 42%),
+        radial-gradient(circle at 88% 18%, var(--flow-canvas-glow-2), transparent 40%),
+        var(--flow-canvas-bg);
+}
+
+.flow-timeline-bg {
+    background:
+        radial-gradient(circle at 12% 12%, var(--flow-canvas-glow-1), transparent 42%),
+        var(--flow-canvas-bg);
+}

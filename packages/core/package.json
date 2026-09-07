@@ -1,0 +1,30 @@
+{
+    "name": "@tch/core",
+    "version": "0.0.1",
+    "main": "src/index.ts",
+    "exports": {
+        ".": {
+            "types": "./src/index.ts",
+            "default": "./src/index.ts"
+        }
+    },
+    "dependencies": {
+        "@mariozechner/pi-agent-core": "^0.65.0",
+        "@mariozechner/pi-ai": "^0.65.0",
+        "@mariozechner/pi-coding-agent": "^0.65.0",
+        "@mariozechner/pi-tui": "^0.65.0",
+        "@sinclair/typebox": "^0.32.35",
+        "dockerode": "^4.0.10",
+        "pi-mcp-adapter": "workspace:*"
+    },
+    "private": true,
+    "scripts": {
+        "build": "tsc",
+        "dev": "tsc --watch"
+    },
+    "type": "module",
+    "types": "src/index.ts",
+    "devDependencies": {
+        "@types/dockerode": "^4.0.1"
+    }
+}

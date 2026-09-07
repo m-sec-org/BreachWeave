@@ -1,0 +1,69 @@
+{
+    "memory": "Memory",
+    "idea": "Idea",
+    "theme": {
+        "toggle": "Toggle theme",
+        "light": "Light",
+        "dark": "Dark",
+        "system": "System"
+    },
+    "replay": {
+        "start": "Start replay",
+        "pause": "Pause replay",
+        "reset": "Reset replay",
+        "waiting": "Waiting for replay..."
+    },
+    "flow": {
+        "agents": "Agents",
+        "time": "Time",
+        "attack-path": "Attack path",
+        "memory-path": "Memory path",
+        "idea-path": "Idea path",
+        "solver-agent-collaboration": "Solver agent collaboration",
+        "aggregate-view": "Aggregate view",
+        "fullscreen": "Fullscreen",
+        "exitFullscreen": "Exit fullscreen",
+        "agentCard": {
+            "latestEvents": "Latest Events",
+            "viewAll": "View all ({{count}}) ›",
+            "runtime": "",
+            "updatedAgo": ""
+        },
+        "solver": {
+            "started": "Solver started"
+        },
+        "timeline": {
+            "solver": {
+                "started": "Solver started",
+                "ended": "Solver ended",
+                "message": "Solver {{role}}"
+            },
+            "observer": {
+                "message": "Observer {{role}}",
+                "reminder": "Efficiency reminder"
+            },
+            "tool": {
+                "call": "Call {{tool}}",
+                "finished": "{{tool}} finished",
+                "failed": "{{tool}} failed"
+            },
+            "flag": {
+                "correct": "Correct flag",
+                "submitted": "Flag submitted"
+            }
+        },
+        "item": {
+            "memory": {
+                "updated": "Memory updated",
+                "added": "Memory added"
+            },
+            "idea": {
+                "updated": "Idea updated",
+                "added": "Idea added"
+            }
+        }
+    },
+    "challenge": {
+        "back": "Back to Project"
+    }
+}

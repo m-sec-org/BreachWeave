@@ -1,0 +1,23 @@
+{
+  "skill_name": "jwt-tool-skill",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "我已经抓到一个 Bearer JWT 和对应的 Burp raw request，想用 jwt_tool 先对这个接口做一轮低噪声的 JWT 审计，然后根据返回判断有没有明显的 token trust 问题。帮我给一个推荐命令和下一步。",
+      "expected_output": "Should prefer request-file mode with jwt_tool, recommend a playbook scan, and explain what response changes or canary values to compare.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "这个 token 的 alg 是 RS256，我拿到了服务端公开的 public.pem。我想用 jwt_tool 验签，再顺手测试下 key confusion 有没有机会，怎么跑比较合理？",
+      "expected_output": "Should separate verification from exploitation, use -V -pk first, then describe a key-confusion test with -X k -pk and its preconditions.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "CTF 里给了一个 HS256 的 JWT，我怀疑密钥很弱，想直接用 jwt_tool 跑字典爆破。如果爆出来了，还想把 role 改成 admin 再重新签名，给我一套顺的流程。",
+      "expected_output": "Should use -C for HMAC cracking, then show a repeatable claim injection and HMAC signing flow rather than interactive tampering.",
+      "files": []
+    }
+  ]
+}

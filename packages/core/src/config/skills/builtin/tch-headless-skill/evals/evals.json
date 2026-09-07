@@ -1,0 +1,23 @@
+{
+  "skill_name": "tch-headless-skill",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "用 tch-headless 爬一下 https://example.com，默认按你觉得合适的方式跑，然后告诉我结果目录在哪、重点页面有哪些。",
+      "expected_output": "Uses the tch-headless workflow, prefers `-jsd`, identifies the expected `.tch-networks-output/<host>_<port>/` directory, and explains that results are stored as method-prefixed `.raw` files containing request and response sections.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "这个站可能有登录，但你不要人工介入，也不要打开浏览器窗口，直接用 tch-headless 粗略爬一遍，然后告诉我匿名状态下拿到了什么。",
+      "expected_output": "Keeps the workflow headless and unattended, does not use `--wait-login` or `--disable-headless`, and explains that results may be limited to anonymously reachable content.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "我这边已经有 `.tch-networks-output` 目录了，你帮我基于这些 raw 文件总结一下这个站的入口页面、接口和响应特征。",
+      "expected_output": "Reads existing `.raw` artifacts instead of rerunning the crawl, explains the method-prefixed filename convention and the raw file structure, and summarizes findings grouped by site area or behavior.",
+      "files": []
+    }
+  ]
+}
