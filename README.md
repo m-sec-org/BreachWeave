@@ -37,6 +37,8 @@ git submodule update --remote
 
 ```bash
 bun run install
+# 编译二进制
+bun run build
 bun run web
 ```
 
