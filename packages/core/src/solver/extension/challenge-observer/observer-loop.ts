@@ -69,10 +69,34 @@ async function isChallengeCompletedByHostBridge(): Promise<boolean> {
     }
 }
 
-async function shouldSendEfficiencyReminder(payload: ObserverReviewPayload, message: string): Promise<boolean> {
+export interface ObserverReviewOptions {
+    observerModel?: string
+    sendCorrectionNotice?: (message: string) => Promise<boolean> | boolean
+}
+
+// Mode adapter: the observer loop mechanics (round buffering, async review queue, anti-nag)
+// are shared; only the id / completion oracle / force-trigger / review runner differ by mode.
+export interface ObserverLoopHost {
+    getId(): string | undefined
+    isComplete(): Promise<boolean>
+    forceReviewReason(toolName: string, isError: boolean): ObserverReviewPayload["reason"] | undefined
+    runReview(id: string, payload: ObserverReviewPayload, options: ObserverReviewOptions): Promise<{ applied: boolean; summary?: string }>
+}
+
+/** Default (CTF) host: host-bridge completion oracle + challenge_get_hint force trigger. */
+export function createChallengeObserverHost(): ObserverLoopHost {
+    return {
+        getId: () => process.env[CHALLENGE_ENV_CHALLENGE_ID]?.trim() || undefined,
+        isComplete: isChallengeCompletedByHostBridge,
+        forceReviewReason: (toolName, isError) => (!isError && toolName === "challenge_get_hint" ? "hint" : undefined),
+        runReview: (id, payload, options) => runSolverObserverReview(id, payload, options),
+    }
+}
+
+async function shouldSendEfficiencyReminder(host: ObserverLoopHost, payload: ObserverReviewPayload, message: string): Promise<boolean> {
     const text = message.trim()
     if (!text) return false
-    if (await isChallengeCompletedByHostBridge()) return false
+    if (await host.isComplete()) return false
 
     const currentRound = payload.rounds.at(-1)?.round ?? 0
     const messageFingerprint = normalizeReminderFingerprint(text)
@@ -231,10 +255,11 @@ function buildObserverPayload(
     }
 }
 
-export function attachObserverLoop(pi: ExtensionAPI, options: { observerModel?: string }): void {
-    const challengeId = process.env[CHALLENGE_ENV_CHALLENGE_ID]?.trim()
-    if (!challengeId) return
-    const challengeIdText = challengeId
+export function attachObserverLoop(pi: ExtensionAPI, options: { observerModel?: string; host?: ObserverLoopHost }): void {
+    const host = options.host ?? createChallengeObserverHost()
+    const id = host.getId()
+    if (!id) return
+    const idText = id
     let reviewRunning = false
 
     const roundStateReady = updateObserverState((state) => ({
@@ -263,10 +288,10 @@ export function attachObserverLoop(pi: ExtensionAPI, options: { observerModel?: 
                 const next = await takeNextObserverReview()
                 if (!next) return
                 try {
-                    await runSolverObserverReview(challengeIdText, next, {
+                    await host.runReview(idText, next, {
                         observerModel: options.observerModel,
                         sendCorrectionNotice: async (message) => {
-                            if (!(await shouldSendEfficiencyReminder(next, message))) {
+                            if (!(await shouldSendEfficiencyReminder(host, next, message))) {
                                 return false
                             }
                             pi.sendUserMessage(`纠偏提醒：${message.trim()}`, { deliverAs: "steer" })
@@ -324,7 +349,7 @@ export function attachObserverLoop(pi: ExtensionAPI, options: { observerModel?: 
                     ...state,
                     current_round_tool_logs: nextToolLogs,
                     tool_args_by_call_id: nextToolArgsByCallId,
-                    force_review_reason: !event.isError && event.toolName === "challenge_get_hint" ? "hint" : state.force_review_reason,
+                    force_review_reason: host.forceReviewReason(event.toolName, event.isError) ?? state.force_review_reason,
                 },
                 result: undefined,
             }

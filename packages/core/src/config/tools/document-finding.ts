@@ -3,6 +3,7 @@ import { defineTool } from "@mariozechner/pi-coding-agent"
 import type { Static } from "@sinclair/typebox"
 import { Type } from "@sinclair/typebox"
 import { ensurePentestWorkspace, pentestSubAgentPath, readHypothesisBacklog, readRunState } from "./pentest-workspace"
+import type { ReportFinding } from "../../engagement/finding"
 
 const DocumentFindingParams = Type.Object({
     target: Type.String({ description: "Target URL, host, or IP" }),
@@ -16,23 +17,20 @@ const DocumentFindingParams = Type.Object({
     source_agent: Type.String({ description: "Source agent identifier" }),
     source_artifact: Type.String({ description: "Source artifact path, e.g. sub-agents/recon-001.json" }),
     notes: Type.String({ description: "Additional notes" }),
+    // Slice 3 optional enrichment (backward compatible; omitted when not provided).
+    severity: Type.Optional(
+        Type.Union([Type.Literal("critical"), Type.Literal("high"), Type.Literal("medium"), Type.Literal("low"), Type.Literal("info")], {
+            description: "Severity level; when omitted, derived from status at report time",
+        }),
+    ),
+    confidence: Type.Optional(Type.Number({ minimum: 0, maximum: 1, description: "Confidence in [0, 1]" })),
+    remediation: Type.Optional(Type.String({ description: "Remediation guidance" })),
+    request: Type.Optional(Type.String({ description: "Raw HTTP request evidence" })),
+    response: Type.Optional(Type.String({ description: "Raw HTTP response evidence" })),
 })
 type DocumentFindingInput = Static<typeof DocumentFindingParams>
 
-interface FindingRecord {
-    target: string
-    kind: string
-    entry_point: string
-    hypothesis: string
-    hypothesis_id: string
-    status: "candidate" | "verified" | "rejected"
-    evidence: string
-    evidence_refs: string[]
-    source_agent: string
-    source_artifact: string
-    notes: string
-    timestamp: string
-}
+type FindingRecord = ReportFinding
 
 function dedupKey(record: Pick<FindingRecord, "target" | "kind" | "entry_point">): string {
     return `${record.target}\n${record.kind}\n${record.entry_point}`

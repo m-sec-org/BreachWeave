@@ -2,6 +2,16 @@ export { ConfigManager } from "./config/index"
 export { RuntimeManager } from "./runtime/runtime"
 export { runSolverCli, runSubagentCli, runSolverRpc } from "./solver/cli"
 export type { SolverEventListener } from "./solver/cli"
+export { prepareEngagementRun, runEngagement, ENGAGEMENT_SOLVER_PROMPT } from "./engagement/run"
+export type {
+    PrepareEngagementRunInput,
+    PreparedEngagementRun,
+    RunEngagementInput,
+    RunEngagementDeps,
+    RunEngagementResult,
+    EngagementEventListener,
+} from "./engagement/run"
+export type { TestPolicy, OwaspClass, TestDepth, RedLine } from "./engagement/policy"
 
 import { ConfigManager } from "./config/index"
 import { ChallengeManager } from "./challenge/manager"

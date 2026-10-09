@@ -1,5 +1,57 @@
 import { Command } from "commander"
 import { basename, resolve } from "node:path"
+import type { OwaspClass, TestDepth, RedLine, TestPolicy } from "@tch/core"
+
+const OWASP_CLASSES: readonly OwaspClass[] = [
+    "sqli",
+    "xss",
+    "ssrf",
+    "auth",
+    "access-control",
+    "injection",
+    "ssti",
+    "xxe",
+    "deserialization",
+    "idor",
+    "file-upload",
+    "path-traversal",
+]
+const TEST_DEPTHS: readonly TestDepth[] = ["quick", "standard", "deep"]
+const RED_LINES: readonly RedLine[] = ["poc-safe", "read-only"]
+
+function splitList(value: string | undefined): string[] {
+    if (!value) return []
+    return value
+        .split(",")
+        .map((item) => item.trim())
+        .filter((item) => item.length > 0)
+}
+
+function parseOwaspClasses(value: string | undefined): OwaspClass[] {
+    const classes = splitList(value)
+    for (const cls of classes) {
+        if (!OWASP_CLASSES.includes(cls as OwaspClass)) {
+            throw new Error(`invalid --classes value: ${cls} (allowed: ${OWASP_CLASSES.join(", ")})`)
+        }
+    }
+    return classes as OwaspClass[]
+}
+
+function parseTestDepth(value: string | undefined): TestDepth {
+    const depth = (value ?? "standard").trim()
+    if (!TEST_DEPTHS.includes(depth as TestDepth)) {
+        throw new Error(`invalid --depth value: ${depth} (allowed: ${TEST_DEPTHS.join(", ")})`)
+    }
+    return depth as TestDepth
+}
+
+function parseRedLine(value: string | undefined): RedLine {
+    const redLine = (value ?? "poc-safe").trim()
+    if (!RED_LINES.includes(redLine as RedLine)) {
+        throw new Error(`invalid --red-line value: ${redLine} (allowed: ${RED_LINES.join(", ")})`)
+    }
+    return redLine as RedLine
+}
 
 const GENERATED_PACKAGE_JSON = {
     name: "tch-agent-runtime",
@@ -120,7 +172,7 @@ async function main() {
     await ensureBuiltinAssetsGenerated()
     await ensureRuntimePackageJson()
 
-    const { ConfigManager, runSolverCli, runSubagentCli, runSolverRpc } = await import("@tch/core")
+    const { ConfigManager, runSolverCli, runSubagentCli, runSolverRpc, runEngagement } = await import("@tch/core")
     if (shouldPrepareHostStaticConfig(process.argv)) {
         const config = await ConfigManager.getInstance()
         await ensureHostStaticConfig(config.dir)
@@ -227,6 +279,46 @@ async function main() {
                     console.log(`  ${prompt.name}${desc}`)
                 }
             }
+        })
+
+    const engagement = program
+        .command("engagement")
+        .description("Run an enterprise authorized black-box pentest engagement")
+
+    engagement
+        .command("run")
+        .description("Bootstrap + run an engagement with the ENGAGEMENT_SOLVER engine")
+        .requiredOption("-w, --workspace <dir>", "Engagement workspace directory (solver ctx.cwd)")
+        .option("-t, --targets <a,b>", "Authorized targets (comma-separated hosts/IPs/CIDRs)")
+        .option("-s, --seeds <u1,u2>", "Seed URLs for RECON (comma-separated)")
+        .option("-c, --classes <sqli,xss>", "OWASP vuln classes to cover (comma-separated)")
+        .option("-d, --depth <depth>", "Test depth: quick | standard | deep", "standard")
+        .option("-r, --red-line <line>", "Destructiveness red line: poc-safe | read-only", "poc-safe")
+        .argument("<task>", "Task to execute")
+        .action(async (task, opts) => {
+            if (!task) {
+                console.error("engagement run requires <task>")
+                process.exit(1)
+            }
+            const workspaceDir = resolve(String(opts.workspace))
+            const authorizedTargets = splitList(opts.targets)
+            const seeds = splitList(opts.seeds)
+            const policy: TestPolicy = {
+                vulnClasses: parseOwaspClasses(opts.classes),
+                depth: parseTestDepth(opts.depth),
+                redLine: parseRedLine(opts.redLine),
+            }
+            const engagementId = basename(workspaceDir) || crypto.randomUUID().slice(0, 8)
+            const solverId = crypto.randomUUID().slice(0, 8)
+
+            await runEngagement({
+                engagementId,
+                workspaceDir,
+                task,
+                solverId,
+                bootstrap: { engagementId, workspaceDir, authorizedTargets, seeds, policy },
+                onEvent: (event) => process.stdout.write(`${JSON.stringify(event)}\n`),
+            })
         })
 
     program.parse()

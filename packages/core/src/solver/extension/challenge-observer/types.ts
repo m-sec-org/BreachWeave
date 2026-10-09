@@ -14,7 +14,8 @@ export interface ObserverRoundPayload {
 }
 
 export interface ObserverReviewPayload {
-    reason: "periodic" | "hint" | "agent_end"
+    // "hint" = challenge-mode force trigger (challenge_get_hint); "force" = engagement-mode force trigger (e.g. document_finding)
+    reason: "periodic" | "hint" | "force" | "agent_end"
     rounds: ObserverRoundPayload[]
     session_context: string
     branch_entry_count: number

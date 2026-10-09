@@ -3,6 +3,7 @@ import { isAbsolute, join, resolve } from "path"
 import { isToolCallEventType } from "@mariozechner/pi-coding-agent"
 import type { ExtensionFactory } from "@mariozechner/pi-coding-agent"
 import { pathStartsWithPrefix, readRunPolicy } from "../../config/tools/pentest-workspace"
+import { commandIsDestructive, isSpawnToolName, isTargetInScope } from "./scope-guard-policy"
 
 export type ScopeGuardMode = "audit" | "enforce"
 
@@ -115,6 +116,27 @@ export function scopeGuardExtension(options: ScopeGuardOptions): ExtensionFactor
 
     return (pi) => {
         pi.on("tool_call", async (event) => {
+            // Enterprise enforce guards apply to ALL roles (incl. main): PoC-safe red line + precise authorization scope.
+            if (mode === "enforce" && isToolCallEventType("bash", event)) {
+                const bashCommand = event.input.command.trim()
+                const destructive = commandIsDestructive(bashCommand)
+                if (destructive.destructive) {
+                    const reason = `destructive command blocked (${destructive.pattern}); engagement is PoC-safe: no data destruction / persistence / DoS`
+                    await writeLog(
+                        `[${new Date().toISOString()}] TOOL_BLOCK bash role=${agentRole} output_id=${outputId ?? "-"} reason=${reason} command=${JSON.stringify(sanitizeCommandForLog(bashCommand))}\n`,
+                    )
+                    return { block: true, reason }
+                }
+                const scopePolicy = await readRunPolicy(workspaceRoot)
+                if (!isTargetInScope(bashCommand, scopePolicy.allowed_targets)) {
+                    const reason = "command target is outside allowed_targets (authorization scope)"
+                    await writeLog(
+                        `[${new Date().toISOString()}] TOOL_BLOCK bash role=${agentRole} output_id=${outputId ?? "-"} reason=${reason} command=${JSON.stringify(sanitizeCommandForLog(bashCommand))}\n`,
+                    )
+                    return { block: true, reason }
+                }
+            }
+
             if (mode === "enforce" && agentRole !== "main" && maxToolCalls !== undefined) {
                 if (event.toolName === SUBMISSION_TOOL_NAME) {
                     return
@@ -195,10 +217,10 @@ export function scopeGuardExtension(options: ScopeGuardOptions): ExtensionFactor
                     }
                 }
 
-                if (event.toolName === "spawn_sub_agent") {
+                if (isSpawnToolName(event.toolName)) {
                     if (mainDirectActions > 0) {
                         await writeLog(
-                            `[${new Date().toISOString()}] MAIN_DIRECT_ACTION_RESET role=main count_before_reset=${mainDirectActions} reason=spawn_sub_agent\n`,
+                            `[${new Date().toISOString()}] MAIN_DIRECT_ACTION_RESET role=main count_before_reset=${mainDirectActions} reason=${event.toolName}\n`,
                         )
                     }
                     mainDirectActions = 0
@@ -272,16 +294,7 @@ export function scopeGuardExtension(options: ScopeGuardOptions): ExtensionFactor
                     return { block: true, reason }
                 }
 
-                if (policy.allowed_targets.length > 0 && /https?:\/\//i.test(command)) {
-                    const hitsAllowedTarget = policy.allowed_targets.some((target) => command.includes(target))
-                    if (!hitsAllowedTarget) {
-                        const reason = "command target is outside allowed_targets in run policy"
-                        await writeLog(
-                            `[${new Date().toISOString()}] TOOL_BLOCK bash role=${agentRole} output_id=${outputId ?? "-"} reason=${reason}\n`,
-                        )
-                        return { block: true, reason }
-                    }
-                }
+                // allowed_targets scope is enforced globally above via isTargetInScope() (precise host/subdomain/CIDR).
             }
 
             if (isToolCallEventType("write", event) || isToolCallEventType("edit", event)) {

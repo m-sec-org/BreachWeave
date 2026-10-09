@@ -6,6 +6,8 @@ import type { PromptFile } from "../config/prompts/index"
 import type { SolverInitPayload } from "./rpc/rpc-types"
 import { solverDir, solverSessionDir, solverWorkspaceDir } from "../runtime/types"
 import { challengeObserverExtension } from "./extension/challenge-observer/index"
+import { engagementObserverExtension } from "./extension/engagement-observer/index"
+import { isEngagementMode } from "../engagement/env"
 import { pentestCompactionExtension } from "./extension/pentest-compaction"
 import { scopeGuardExtension } from "./extension/scope-guard"
 import { largeToolResultExtension } from "./extension/large-tool-result"
@@ -128,11 +130,17 @@ export async function createSolverSession(init: SolverInitPayload): Promise<Solv
     const promptModel = typeof prompt.meta.model === "string" && prompt.meta.model.trim() ? prompt.meta.model.trim() : undefined
     const observerModel = typeof prompt.meta.observerModel === "string" && prompt.meta.observerModel.trim() ? prompt.meta.observerModel.trim() : promptModel
 
-    const extensions = [
-        // largeToolResultExtension({ workspaceRoot: workspaceDir }),
-        challengeObserverExtension({ observerEnabled, observerModel }),
-        // rtkRewriteExtension(),
-    ]
+    const extensions = isEngagementMode()
+        ? [
+              engagementObserverExtension({ observerEnabled, observerModel }),
+              // Enterprise authorization + PoC-safe red line, enforced for the main orchestrator.
+              scopeGuardExtension({ workspaceRoot: workspaceDir, agentRole: "main", mode: "enforce" }),
+          ]
+        : [
+              // largeToolResultExtension({ workspaceRoot: workspaceDir }),
+              challengeObserverExtension({ observerEnabled, observerModel }),
+              // rtkRewriteExtension(),
+          ]
 
     const sessionOpts = await config.resolvePromptSession(init.promptName, extensions)
     if (!sessionOpts) {
@@ -180,12 +188,17 @@ export async function createSubagentSession(promptName: string, task: string): P
     await mkdir(sessionDir, { recursive: true })
     await mkdir(workspaceDir, { recursive: true })
 
-    const extensionFactories: ExtensionFactory[] = [
-        // rtkRewriteExtension(),
-        // largeToolResultExtension({ workspaceRoot: workspaceDir }),
-        // pentestCompactionExtension(),
-        // scopeGuardExtension({ workspaceRoot: workspaceDir, agentRole: "subagent" }),
-    ]
+    const extensionFactories: ExtensionFactory[] = isEngagementMode()
+        ? [
+              // Sub-agents run under enforce: precise scope + PoC-safe red line + audit.
+              scopeGuardExtension({ workspaceRoot: workspaceDir, agentRole: "subagent", mode: "enforce" }),
+          ]
+        : [
+              // rtkRewriteExtension(),
+              // largeToolResultExtension({ workspaceRoot: workspaceDir }),
+              // pentestCompactionExtension(),
+              // scopeGuardExtension({ workspaceRoot: workspaceDir, agentRole: "subagent" }),
+          ]
 
     const sessionOpts = await config.resolvePromptSession(promptName, extensionFactories)
     if (!sessionOpts) {

@@ -178,6 +178,23 @@ memory 保存压缩后仍必须留下的 durable facts、evidence、failures、h
 
 不要把这些动态上下文误当成新的长期规则。`
 
+// Mode adapter for the review agent: only the system prompt + context/completion source
+// differ by mode. Challenge default preserves host-bridge behavior; engagement injects its own.
+export interface ObserverReviewHost {
+    systemPrompt: string
+    resolve(id: string): Promise<{ isComplete: boolean; contextBlock: string }>
+}
+
+export function createChallengeReviewHost(): ObserverReviewHost {
+    return {
+        systemPrompt: OBSERVER_SYSTEM_PROMPT,
+        async resolve(id: string) {
+            const state = await requestHostBridge<{ challenge?: ChallengeInfoRecord; is_completed: boolean }>("challenge_get_state", {})
+            return { isComplete: state.is_completed === true, contextBlock: formatObserverChallengeContext(id, state.challenge) }
+        },
+    }
+}
+
 function extractTextContent(content: Array<{ type: string; text?: string }> | undefined): string {
     if (!content) return ""
     return content
@@ -232,14 +249,9 @@ function formatObserverRounds(rounds: ObserverReviewPayload["rounds"]): string {
         .join("\n\n")
 }
 
-function buildObserverPrompt(
-    challengeId: string,
-    payload: ObserverReviewPayload,
-    challenge: ChallengeInfoRecord | undefined,
-): string {
-    const challengeContext = formatObserverChallengeContext(challengeId, challenge)
+function buildObserverPrompt(contextBlock: string, payload: ObserverReviewPayload): string {
     return [
-        challengeContext,
+        contextBlock,
         "",
         "## Recent Solver Context",
         "- 这段是压缩后的主 solver 背景，只保留少量用户目标与补充约束；最近几轮已足够时，优先看下方活动记录。",
@@ -270,12 +282,13 @@ function resolveObserverWorkspaceDir(): string {
 
 async function resolveObserverSessionOptions(
     config: ConfigManager,
+    systemPrompt: string,
     observerModel?: string,
     sendCorrectionNotice?: (message: string) => Promise<boolean> | boolean,
 ): Promise<CreateAgentSessionOptions | undefined> {
     const resourceLoader = new DefaultResourceLoader({
         agentDir: DEFAULT_CONFIG_DIR,
-        systemPromptOverride: () => OBSERVER_SYSTEM_PROMPT,
+        systemPromptOverride: () => systemPrompt,
     })
     await resourceLoader.reload()
     const solverEntries = await loadMainSolverEntries()
@@ -329,29 +342,33 @@ async function loadMainSolverEntries(): Promise<unknown[]> {
 }
 
 export async function runSolverObserverReview(
-    challengeId: string,
+    id: string,
     payload: ObserverReviewPayload,
-    options?: { observerModel?: string; sendCorrectionNotice?: (message: string) => Promise<boolean> | boolean },
+    options?: {
+        observerModel?: string
+        sendCorrectionNotice?: (message: string) => Promise<boolean> | boolean
+        reviewHost?: ObserverReviewHost
+    },
 ): Promise<{
     applied: boolean
     summary?: string
 }> {
-    const id = challengeId.trim()
-    if (!id) {
-        throw new Error("challengeId is required")
+    const trimmedId = id.trim()
+    if (!trimmedId) {
+        throw new Error("id is required")
     }
 
     const rounds = Array.isArray(payload.rounds) ? payload.rounds.filter((item) => Array.isArray(item.tool_logs)) : []
     if (rounds.length === 0) return { applied: false }
 
-    const state = await requestHostBridge<{ challenge?: ChallengeInfoRecord; is_completed: boolean }>("challenge_get_state", {})
-    if (state.is_completed) {
+    const reviewHost = options?.reviewHost ?? createChallengeReviewHost()
+    const { isComplete, contextBlock } = await reviewHost.resolve(trimmedId)
+    if (isComplete) {
         return { applied: false }
     }
-    const challenge = state.challenge
 
     const config = await ConfigManager.getInstance()
-    const sessionOpts = await resolveObserverSessionOptions(config, options?.observerModel, options?.sendCorrectionNotice)
+    const sessionOpts = await resolveObserverSessionOptions(config, reviewHost.systemPrompt, options?.observerModel, options?.sendCorrectionNotice)
     if (!sessionOpts?.resourceLoader) return { applied: false }
     const observerSessionDir = resolveObserverSessionDir()
     const observerWorkspaceDir = resolveObserverWorkspaceDir()
@@ -371,14 +388,10 @@ export async function runSolverObserverReview(
 
     try {
         await session.prompt(
-            buildObserverPrompt(
-                id,
-                {
-                    ...payload,
-                    rounds,
-                },
-                challenge,
-            ),
+            buildObserverPrompt(contextBlock, {
+                ...payload,
+                rounds,
+            }),
         )
     } finally {
         session.dispose()
