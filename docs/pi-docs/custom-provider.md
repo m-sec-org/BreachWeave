@@ -31,7 +31,7 @@ See these complete provider examples:
 ## Quick Reference
 
 ```typescript
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 export default function (pi: ExtensionAPI) {
   // Override baseUrl for existing provider
@@ -213,7 +213,7 @@ pi.registerProvider("custom-api", {
 Add OAuth/SSO authentication that integrates with `/login`:
 
 ```typescript
-import type { OAuthCredentials, OAuthLoginCallbacks } from "@mariozechner/pi-ai";
+import type { OAuthCredentials, OAuthLoginCallbacks } from "@earendil-works/pi-ai";
 
 pi.registerProvider("corporate-ai", {
   baseUrl: "https://ai.corp.com/v1",
@@ -306,12 +306,12 @@ interface OAuthCredentials {
 For providers with non-standard APIs, implement `streamSimple`. Study the existing provider implementations before writing your own:
 
 **Reference implementations:**
-- [anthropic.ts](https://github.com/badlogic/pi-mono/blob/main/packages/ai/src/providers/anthropic.ts) - Anthropic Messages API
-- [mistral.ts](https://github.com/badlogic/pi-mono/blob/main/packages/ai/src/providers/mistral.ts) - Mistral Conversations API
-- [openai-completions.ts](https://github.com/badlogic/pi-mono/blob/main/packages/ai/src/providers/openai-completions.ts) - OpenAI Chat Completions
-- [openai-responses.ts](https://github.com/badlogic/pi-mono/blob/main/packages/ai/src/providers/openai-responses.ts) - OpenAI Responses API
-- [google.ts](https://github.com/badlogic/pi-mono/blob/main/packages/ai/src/providers/google.ts) - Google Generative AI
-- [amazon-bedrock.ts](https://github.com/badlogic/pi-mono/blob/main/packages/ai/src/providers/amazon-bedrock.ts) - AWS Bedrock
+- [anthropic.ts](https://github.com/earendil-works/pi/blob/main/packages/ai/src/providers/anthropic.ts) - Anthropic Messages API
+- [mistral.ts](https://github.com/earendil-works/pi/blob/main/packages/ai/src/providers/mistral.ts) - Mistral Conversations API
+- [openai-completions.ts](https://github.com/earendil-works/pi/blob/main/packages/ai/src/providers/openai-completions.ts) - OpenAI Chat Completions
+- [openai-responses.ts](https://github.com/earendil-works/pi/blob/main/packages/ai/src/providers/openai-responses.ts) - OpenAI Responses API
+- [google.ts](https://github.com/earendil-works/pi/blob/main/packages/ai/src/providers/google.ts) - Google Generative AI
+- [amazon-bedrock.ts](https://github.com/earendil-works/pi/blob/main/packages/ai/src/providers/amazon-bedrock.ts) - AWS Bedrock
 
 ### Stream Pattern
 
@@ -326,7 +326,7 @@ import {
   type SimpleStreamOptions,
   calculateCost,
   createAssistantMessageEventStream,
-} from "@mariozechner/pi-ai";
+} from "@earendil-works/pi-ai";
 
 function streamMyProvider(
   model: Model<any>,
@@ -483,7 +483,7 @@ pi.registerProvider("my-provider", {
 
 ## Testing Your Implementation
 
-Test your provider against the same test suites used by built-in providers. Copy and adapt these test files from [packages/ai/test/](https://github.com/badlogic/pi-mono/tree/main/packages/ai/test):
+Test your provider against the same test suites used by built-in providers. Copy and adapt these test files from [packages/ai/test/](https://github.com/earendil-works/pi/tree/main/packages/ai/test):
 
 | Test | Purpose |
 |------|---------|

@@ -1,6 +1,6 @@
 import { mkdir } from "node:fs/promises"
 import { basename, join } from "node:path"
-import type { ExtensionFactory } from "@mariozechner/pi-coding-agent"
+import type { ExtensionFactory } from "@earendil-works/pi-coding-agent"
 
 const DEFAULT_MAX_INLINE_CHARS = 32000
 const PREVIEW_CHARS = 600

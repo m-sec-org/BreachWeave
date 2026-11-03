@@ -13,14 +13,25 @@
  *   - stdout: RpcResponse | AgentSessionEvent
  */
 
-import type { AgentSession, AgentSessionEvent } from "@mariozechner/pi-coding-agent"
+import type { AgentSession, AgentSessionEvent } from "@earendil-works/pi-coding-agent"
 import { createSolverSession } from "../session"
 import type { SolverInitPayload, RpcCommand, RpcResponse } from "./rpc-types"
 import { serializeJsonLine, attachJsonlLineReader } from "./jsonl"
-import { resolveHostBridgeResponse } from "../../challenge/host-bridge-client"
+import { requestHostBridge, resolveHostBridgeResponse } from "../../challenge/host-bridge-client"
+import { AUTHORIZED_SOLVER_ENV } from "../../challenge/env"
 
 export interface RunSolverRpcOptions {
     env?: string[]
+}
+
+interface ChallengeRpcCompletionState {
+    is_completed: boolean
+    solver_task_completed?: boolean
+}
+
+interface ChallengeRpcCompletionOptions {
+    readCompletion?: () => Promise<ChallengeRpcCompletionState>
+    exit?: () => void
 }
 
 // ── Helpers ──
@@ -60,6 +71,37 @@ function applyEnvPairs(pairs?: string[]) {
         }
         process.env[key] = value
     }
+}
+
+export function attachChallengeRpcCompletion(
+    session: AgentSession,
+    init: Pick<SolverInitPayload, "challengeId">,
+    options: ChallengeRpcCompletionOptions = {},
+): void {
+    if (!init.challengeId?.trim() || process.env[AUTHORIZED_SOLVER_ENV] === "1") return
+    const readCompletion = options.readCompletion ?? (() => requestHostBridge<ChallengeRpcCompletionState>("challenge_is_completed", {}))
+    const exit = options.exit ?? (() => process.exit(0))
+    let checking = false
+    let finished = false
+
+    session.subscribe(async (event) => {
+        // agent_settled follows all awaited extension agent_end handlers, including
+        // the Observer's final review. Exiting at agent_end would lose findings.
+        if (event.type !== "agent_settled" || checking || finished) return
+        checking = true
+        try {
+            const completion = await readCompletion()
+            if (completion.is_completed !== true && completion.solver_task_completed !== true) return
+            if (session.isStreaming || session.isCompacting || session.pendingMessageCount > 0) return
+            finished = true
+            session.dispose()
+            exit()
+        } catch (error) {
+            console.error(`[solver] completion check failed: ${error instanceof Error ? error.message : String(error)}`)
+        } finally {
+            checking = false
+        }
+    })
 }
 
 // ── Server ──
@@ -103,6 +145,7 @@ export async function runSolverRpc(options?: RunSolverRpcOptions): Promise<never
         if (!shouldForwardEvent(event)) return
         output(event)
     })
+    attachChallengeRpcCompletion(session, init)
 
     output(success(undefined, "init"))
 
@@ -180,7 +223,7 @@ export async function handleCommand(session: AgentSession, cmd: RpcCommand): Pro
 
         // Model
         case "set_model": {
-            const models = await session.modelRegistry.getAvailable()
+            const models = await session.modelRuntime.getAvailable()
             const model = models.find((m) => m.provider === cmd.provider && m.id === cmd.modelId)
             if (!model) return error(id, "set_model", `Model not found: ${cmd.provider}/${cmd.modelId}`)
             await session.setModel(model)
@@ -193,7 +236,7 @@ export async function handleCommand(session: AgentSession, cmd: RpcCommand): Pro
         }
 
         case "get_available_models": {
-            const models = await session.modelRegistry.getAvailable()
+            const models = await session.modelRuntime.getAvailable()
             return success(id, "get_available_models", { models })
         }
 

@@ -1,0 +1,13 @@
+{
+  "format": "breachweave-taric-integration-smoke/1",
+  "profile": "authenticated_proxy",
+  "status": "unavailable",
+  "evidenceClass": "real_gateway_smoke",
+  "targetContacted": false,
+  "validationPassed": false,
+  "blocker": {
+    "code": "missing_trusted_resource",
+    "message": "TARIC_REAL_SMOKE_RESOURCE_ID (trusted provisioned Resource UUID) is required"
+  },
+  "secretMaterial": "omitted"
+}

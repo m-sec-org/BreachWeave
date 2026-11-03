@@ -2,14 +2,19 @@ import { afterEach, describe, expect, mock, test } from "bun:test"
 import { mkdir, mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { resolve } from "node:path"
-import type { AgentSessionEvent } from "@mariozechner/pi-coding-agent"
-import { getAgentEndError, hashDockerfileContent, RuntimeManager } from "./runtime"
+import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent"
+import { getAgentEndError, hashDockerfileContent, MODEL_BRIDGE_PLACEHOLDER, RuntimeManager } from "./runtime"
 import { CHALLENGE_ENV_CHALLENGE_ID } from "../challenge/env"
 import { ChallengeManager } from "../challenge/manager"
 import { createChallengeHostBridgeHandler } from "../challenge/host-bridge-handler"
 import type { ChallengeInfoRecord } from "../challenge/store"
 import type { ConfigManager } from "../config/index"
 import { solverDir } from "./types"
+import { createAuthorizedModelFetch } from "../solver/authorized-model-fetch"
+import { stream as streamOpenAICompletions } from "@earendil-works/pi-ai/api/openai-completions"
+import type { Model } from "@earendil-works/pi-ai"
+import { normalizeContext } from "@earendil-works/pi-ai/utils/transcript"
+import type { requestHostBridge } from "../challenge/host-bridge-client"
 
 const tempDirs: string[] = []
 
@@ -87,6 +92,158 @@ describe("hashDockerfileContent", () => {
 })
 
 describe("RuntimeManager host bridge", () => {
+    test("ordinary launches reject reserved Taric environment before Docker access", async () => {
+        const { runtime } = await createRuntimeManager()
+        const ensureImage = mock(async () => {
+            throw new Error("Docker must not be reached")
+        })
+        ;(runtime as unknown as { ensureImage: typeof ensureImage }).ensureImage = ensureImage
+
+        await expect(runtime.launch("pentest-orchestrator", "solve", { tCh_TaRiC_WORK_RUN_ID: "forged" })).rejects.toThrow("solver environment key is reserved")
+        expect(ensureImage).not.toHaveBeenCalled()
+    })
+
+    test("authorized model bridge substitutes only the host-bound placeholder credential", async () => {
+        const { runtime } = await createRuntimeManager()
+        const manager = runtime as unknown as {
+            solverEnvs: Map<string, Record<string, string>>
+            authorizedModelBindings: Map<string, { origin: string; pathPrefix: string; providerId: string; modelPrefId: string; modelId: string; apiKey: string; configDir: string }>
+            executeAuthorizedModelFetch(solverId: string, params: unknown): Promise<{ status: number }>
+        }
+        manager.solverEnvs.set("solver-auth", { TCH_TARIC_AUTHORIZED_PROFILE: "1", TCH_TARIC_MODEL_ORIGIN: "https://model.example" })
+        const request = {
+            transportId: crypto.randomUUID(),
+            url: "https://model.example/v1/chat/completions",
+            method: "POST",
+            bodyBase64: Buffer.from("{}").toString("base64"),
+            headers: { authorization: `Bearer ${MODEL_BRIDGE_PLACEHOLDER}`, "content-type": "application/json" },
+        }
+
+        await expect(manager.executeAuthorizedModelFetch("solver-auth", request)).rejects.toThrow("transport is unavailable")
+
+        manager.authorizedModelBindings.set("solver-auth", {
+            origin: "https://model.example",
+            pathPrefix: "/v1/",
+            providerId: "provider:test",
+            modelPrefId: "model-pref",
+            modelId: "model",
+            apiKey: "host-secret",
+            configDir: "/unused",
+        })
+        const originalFetch = globalThis.fetch
+        const captured = { authorization: null as string | null }
+        globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+            captured.authorization = new Headers(init?.headers).get("authorization")
+            return new Response("{}", { status: 200, headers: { "content-type": "application/json" } })
+        }) as typeof fetch
+        try {
+            const response = await manager.executeAuthorizedModelFetch("solver-auth", request)
+            expect(response.status).toBe(200)
+            expect(captured.authorization).toBe("Bearer host-secret")
+            await expect(manager.executeAuthorizedModelFetch("solver-auth", { ...request, transportId: crypto.randomUUID(), url: "https://model.example/admin" })).rejects.toThrow("destination is not approved")
+            await expect(manager.executeAuthorizedModelFetch("solver-auth", {
+                ...request,
+                headers: { authorization: "Bearer attacker-secret", "content-type": "application/json" },
+            })).rejects.toThrow("credential is invalid")
+            await expect(manager.executeAuthorizedModelFetch("solver-auth", {
+                ...request,
+                headers: { authorization: `Bearer ${MODEL_BRIDGE_PLACEHOLDER}`, "x-custom-auth": "attacker-secret" },
+            })).rejects.toThrow("header is not allowed")
+        } finally {
+            globalThis.fetch = originalFetch
+        }
+    })
+
+    test("real pi-ai adapter consumes host-mediated SSE before completion and cancels upstream", async () => {
+        const { runtime } = await createRuntimeManager()
+        const manager = runtime as unknown as {
+            authorizedModelBindings: Map<string, { origin: string; pathPrefix: string; providerId: string; modelPrefId: string; modelId: string; apiKey: string; configDir: string }>
+            authorizedModelRequests: Map<string, Map<string, unknown>>
+            executeHostBridgeAction(solverId: string, action: string, params: unknown): Promise<unknown>
+        }
+        let finishStream: (() => void) | undefined
+        let fixtureAuthorized = false
+        const encoder = new TextEncoder()
+        function event(content: string, finishReason: string | null = null) {
+            return encoder.encode(`data: ${JSON.stringify({ id: "fixture", choices: [{ index: 0, delta: { content }, finish_reason: finishReason }] })}\n\n`)
+        }
+        const fixture = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
+            fixtureAuthorized = request.headers.get("authorization") === "Bearer fixture-host-secret"
+            return new Response(new ReadableStream({
+                start(controller) {
+                    controller.enqueue(event("hello"))
+                    finishStream = () => {
+                        controller.enqueue(event("", "stop"))
+                        controller.enqueue(encoder.encode("data: [DONE]\n\n"))
+                        controller.close()
+                    }
+                },
+            }), { headers: { "content-type": "text/event-stream" } })
+        } })
+        const origin = fixture.url.origin
+        manager.authorizedModelBindings.set("solver-stream", { origin, pathPrefix: "/v1/", providerId: "fixture", modelPrefId: "fixture", modelId: "fixture", apiKey: "fixture-host-secret", configDir: "/unused" })
+        const actions: string[] = []
+        const bridgeErrors: string[] = []
+        const bridge: typeof requestHostBridge = async <T>(action: Parameters<typeof requestHostBridge>[0], params: unknown) => {
+            actions.push(action)
+            try {
+                return await manager.executeHostBridgeAction("solver-stream", action, params) as T
+            } catch (error) {
+                bridgeErrors.push(String(error))
+                throw error
+            }
+        }
+        const nativeFetch = globalThis.fetch
+        const authorizedFetch = createAuthorizedModelFetch(origin, bridge)
+        // Host and Solver have separate globals in production. Dispatch by the
+        // placeholder here so the SDK exercises its default fetch selection.
+        globalThis.fetch = Object.assign((input: string | URL | Request, init?: RequestInit) => {
+            if (new Headers(init?.headers).get("authorization") === "Bearer fixture-host-secret") return nativeFetch(input, init)
+            return authorizedFetch(input, init)
+        }, { preconnect: nativeFetch.preconnect }) as typeof fetch
+        try {
+            const model: Model<"openai-completions"> = { id: "fixture", name: "fixture", api: "openai-completions", provider: "fixture", baseUrl: `${origin}/v1`, reasoning: false, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 8192, maxTokens: 100 }
+            const stream = streamOpenAICompletions(model, normalizeContext({ messages: [{ role: "user", content: "hello", timestamp: Date.now() }] }), { apiKey: MODEL_BRIDGE_PLACEHOLDER, maxRetries: 0 })
+            let sawIncrementalDelta = false
+            for await (const item of stream) {
+                if (item.type === "text_delta") {
+                    sawIncrementalDelta = true
+                    expect(item.delta).toBe("hello")
+                    expect(fixtureAuthorized).toBe(true)
+                    finishStream?.()
+                }
+            }
+            const result = await stream.result()
+            expect(bridgeErrors).toEqual([])
+            expect(result.errorMessage).toBeUndefined()
+            expect(sawIncrementalDelta).toBe(true)
+            expect(result.stopReason).toBe("stop")
+            expect(actions).toContain("authorized_model_fetch")
+            expect(actions).toContain("authorized_model_read")
+            const abort = new AbortController()
+            const response = await authorizedFetch(`${origin}/v1/chat/completions`, { method: "POST", headers: { authorization: `Bearer ${MODEL_BRIDGE_PLACEHOLDER}` }, body: "{}", signal: abort.signal })
+            await response.body!.getReader().read()
+            abort.abort()
+            await new Promise((resolveTick) => setTimeout(resolveTick, 0))
+            expect(actions).toContain("authorized_model_cancel")
+            expect(manager.authorizedModelRequests.get("solver-stream")?.size).toBe(0)
+        } finally {
+            globalThis.fetch = nativeFetch
+            fixture.stop(true)
+        }
+    }, 10_000)
+
+    test("authorized Solver Docker arguments force a networkless profile and drop host env", async () => {
+        const { runtime } = await createRuntimeManager()
+        const manager = runtime as unknown as { config: { networkMode?: string; binds?: string[]; env?: Record<string, string> }; buildDockerArgs(name: string, binds: string[], cmd: string[], workdir: string, authorized?: boolean): string[] }
+        manager.config = { networkMode: "host", binds: ["/host/socket:/socket"], env: { HTTPS_PROXY: "http://proxy.invalid" } }
+        const args = manager.buildDockerArgs("authorized", ["/runtime:/runtime"], ["solver"], "/workspace", true)
+        expect(args).toContain("none")
+        expect(args).not.toContain("host")
+        expect(args).not.toContain("/host/socket:/socket")
+        expect(args.some((value) => typeof value === "string" && value.includes("PROXY"))).toBe(false)
+    })
+
     test("getDetails restores subagent parent tool call id from startup snapshot", async () => {
         const { runtime } = await createRuntimeManager()
         const solverId = `solver-${Date.now()}`

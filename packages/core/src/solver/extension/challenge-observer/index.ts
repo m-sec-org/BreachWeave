@@ -1,4 +1,4 @@
-import type { ExtensionFactory } from "@mariozechner/pi-coding-agent"
+import type { ExtensionFactory } from "@earendil-works/pi-coding-agent"
 import type { PromptSessionExtensionLike } from "../../../config/index"
 import { attachChallengeContinuation, buildChallengeExtensionAppendPrompt, isChallengeMode } from "./ralph-loop"
 import { attachObserverLoop, buildObserverExtensionAppendPrompt } from "./observer-loop"

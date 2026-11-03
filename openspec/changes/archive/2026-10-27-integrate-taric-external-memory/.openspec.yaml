@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-10-25
+goal: Provide a production-ready BreachWeave host adapter for Taric without
+  changing Taric core boundaries

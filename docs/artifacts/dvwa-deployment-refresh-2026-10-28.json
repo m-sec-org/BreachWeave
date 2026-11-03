@@ -1,0 +1,49 @@
+{
+  "format": "breachweave-dvwa-deployment-refresh/1",
+  "date": "2026-10-28",
+  "classification": "deployment-refresh-with-authentication-blocker",
+  "environment": {
+    "web": "http://127.0.0.1:3000",
+    "isolatedHome": "/tmp/breachweave-dvwa-home",
+    "configDir": "/tmp/breachweave-dvwa-home/.tch-agent/config",
+    "webStatus": 200,
+    "sourceRestarted": true
+  },
+  "taric": {
+    "profile": "authenticated_proxy",
+    "gateway": "127.0.0.1:8849",
+    "existingGatewayAdopted": true,
+    "health": "healthy"
+  },
+  "model": {
+    "provider": "zhipuai",
+    "model": "glm-5.3",
+    "probeOk": true,
+    "responseMarker": "OK",
+    "secretMaterial": "omitted"
+  },
+  "verification": {
+    "profile": "authenticated_proxy",
+    "status": "passed",
+    "typecheckExitCode": 0,
+    "focusedTestsExitCode": 0,
+    "coreTestsExitCode": 0,
+    "buildExitCode": 0,
+    "coreTestsPassed": 275
+  },
+  "dvwa": {
+    "target": "http://10.5.207.26:4280/",
+    "unauthenticatedRootStatus": 302,
+    "loginGetStatus": 200,
+    "sessionTokenPresent": true,
+    "loginPostStatus": 302,
+    "loginRedirectPath": "/login.php",
+    "loginFailedMarker": true,
+    "authenticatedModuleRequestsSent": false,
+    "cookiesAndTokenValues": "omitted"
+  },
+  "limitations": [
+    "This refresh did not repeat authenticated vulnerability checks because the supplied credentials were rejected by the current login flow.",
+    "Earlier authenticated SQL injection, reflected XSS, and command-injection findings remain documented separately as a single-run practice case study."
+  ]
+}

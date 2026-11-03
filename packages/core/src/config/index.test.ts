@@ -1,5 +1,5 @@
 import { test, expect, beforeEach, afterEach, describe } from "bun:test"
-import type { ExtensionFactory } from "@mariozechner/pi-coding-agent"
+import type { ExtensionFactory } from "@earendil-works/pi-coding-agent"
 import { ConfigManager } from "./index"
 import type { ModelConfigEntry } from "./providers/types"
 import { CHALLENGE_REPORT_PROMPT_NAME } from "./prompts/index"
@@ -19,6 +19,29 @@ beforeEach(async () => {
 afterEach(async () => {
     delete process.env[CHALLENGE_ENV_CHALLENGE_ID]
     await rm(configDir, { recursive: true, force: true })
+})
+
+describe("Taric host profiles", () => {
+    test("persists only explicit embedded host capabilities", async () => {
+        const settings = await config.setHostSettings({ taric: { profile: "embedded_bun", embeddedHostCapabilities: ["content_read", "admit", "content_read"] } })
+        expect(settings.taric?.embeddedHostCapabilities).toEqual(["content_read", "admit"])
+        expect((await config.getHostSettings()).taric?.embeddedHostCapabilities).toEqual(["content_read", "admit"])
+        const empty = await config.setHostSettings({ taric: { embeddedHostCapabilities: [] } })
+        expect(empty.taric?.embeddedHostCapabilities).toEqual([])
+    })
+
+    test("persists acceptance and authority profiles independently of transport", async () => {
+        const updated = await config.setHostSettings({ taric: {
+            enabled: true,
+            profile: "authenticated_proxy",
+            acceptanceProfile: "production_hardened",
+            authorityProfile: "multi_host_authority",
+        } })
+        expect(updated.taric).toMatchObject({ profile: "authenticated_proxy", acceptanceProfile: "production_hardened", authorityProfile: "multi_host_authority" })
+        expect((await config.getHostSettings()).taric).toMatchObject(updated.taric!)
+        const local = await config.setHostSettings({ taric: { acceptanceProfile: "local_development", authorityProfile: "single_host_sqlite" } })
+        expect(local.taric).toMatchObject({ profile: "authenticated_proxy", acceptanceProfile: "local_development", authorityProfile: "single_host_sqlite" })
+    })
 })
 
 // ── API Keys ──
@@ -298,13 +321,13 @@ describe("prompts", () => {
         await config.setPrompt({
             name: "planner",
             meta: {
-                isSubagent: true,
+                isSubagent: false,
                 subagents: ["worker", "reviewer"],
             },
             content: "planner prompt",
         })
         const prompt = await config.getPrompt("planner")
-        expect(prompt?.meta.isSubagent).toBe(true)
+        expect(prompt?.meta.isSubagent).toBe(false)
         expect(prompt?.meta.subagents).toEqual(["worker", "reviewer"])
     })
 
@@ -323,13 +346,21 @@ describe("prompts", () => {
     })
 
     test("builtin prompt does not overwrite user changes on restart", async () => {
-        const promptPath = resolve(configDir, "prompts", "2323.md")
+        const promptPath = resolve(configDir, "prompts", "msec-security.md")
         const original = await Bun.file(promptPath).text()
 
         await Bun.write(promptPath, `${original}\n\nuser override`)
         config = await ConfigManager.getInstance(configDir)
 
         expect(await Bun.file(promptPath).text()).toContain("user override")
+    })
+
+    test("rejects an empty challenge planner prompt without changing its settings", async () => {
+        const existing = await config.setChallengePlannerPrompt("Keep the configured planner instructions.", "planner-model")
+
+        await expect(config.setChallengePlannerPrompt(" \n\t ", "replacement-model")).rejects.toThrow("challenge planner prompt content is required")
+
+        expect(await config.getChallengePlannerPrompt()).toEqual(existing)
     })
 })
 
@@ -342,12 +373,11 @@ describe("resolvePromptSession", () => {
         expect(await config.resolvePromptSession("nope")).toBeUndefined()
     })
 
-    test("always sets authStorage and modelRegistry", async () => {
+    test("always sets modelRuntime", async () => {
         await config.setPrompt({ name: "basic", meta: {}, content: "basic prompt" })
         const opts = await config.resolvePromptSession("basic")
         expect(opts).toBeDefined()
-        expect(opts!.authStorage).toBe(config.auth)
-        expect(opts!.modelRegistry).toBe(config.models)
+        expect(opts!.modelRuntime).toBe(config.modelRuntime)
     })
 
     test("always sets resourceLoader", async () => {
@@ -411,6 +441,20 @@ describe("resolvePromptSession", () => {
         expect(opts!.customTools?.map((tool) => tool.name)).toContain("challenge_submit_report")
     })
 
+    test("authorized Solver ignores prompt networking tools and exposes only mediated HTTP", async () => {
+        process.env[CHALLENGE_ENV_CHALLENGE_ID] = "authorized-project"
+        await config.addMcpServer("browser", { command: "browser-mcp", args: [] })
+        await config.setPrompt({
+            name: "authorized-tools",
+            meta: { tools: ["bash", "read", "challenge_submit_report", "security_kimi_search"], mcps: ["browser"], subagents: ["worker"] },
+            content: "authorized",
+        })
+        const opts = await config.resolvePromptSession("authorized-tools", undefined, { authorizedSolver: true, appendChallengeReportPrompt: false })
+        expect(opts?.tools).toEqual([])
+        expect(opts?.customTools?.map((tool) => tool.name)).toEqual(["challenge_authorized_http", "authorized_work_complete"])
+        expect((opts?.resourceLoader as unknown as { extensionFactories: unknown[] }).extensionFactories).toEqual([])
+    })
+
     test("empty tools array → all builtin tools disabled", async () => {
         await config.setPrompt({ name: "empty-tools", meta: { tools: [] }, content: "empty" })
         const opts = await config.resolvePromptSession("empty-tools")
@@ -443,25 +487,25 @@ describe("resolvePromptSession", () => {
     test("custom tool in prompt → opts.customTools set", async () => {
         await config.setPrompt({
             name: "with-custom",
-            meta: { tools: ["nmap"] },
-            content: "use nmap",
+            meta: { tools: ["security_kimi_search"] },
+            content: "use security search",
         })
         const opts = await config.resolvePromptSession("with-custom")
         expect(opts!.tools).toEqual([])
         expect(opts!.customTools).toHaveLength(1)
-        expect(opts!.customTools![0].name).toBe("nmap")
+        expect(opts!.customTools![0].name).toBe("security_kimi_search")
     })
 
     test("mixed builtin + custom tools", async () => {
         await config.setPrompt({
             name: "mixed",
-            meta: { tools: ["bash", "read", "nmap"] },
+            meta: { tools: ["bash", "read", "security_kimi_search"] },
             content: "mixed tools",
         })
         const opts = await config.resolvePromptSession("mixed")
         expect(opts!.tools).toHaveLength(2)
         expect(opts!.customTools).toHaveLength(1)
-        expect(opts!.customTools![0].name).toBe("nmap")
+        expect(opts!.customTools![0].name).toBe("security_kimi_search")
     })
 
     test("unknown tool names (MCP) → not in tools or customTools", async () => {
@@ -510,7 +554,7 @@ describe("resolvePromptSession", () => {
         })
         await config.setPrompt({ name: "ghost-model", meta: { model: "ghost-pref" }, content: "ghost" })
         await expect(config.resolvePromptSession("ghost-model")).rejects.toThrow(
-            'prompt "ghost-model" model "ghost-pref": model nonexistent-provider/nonexistent-model not found in registry',
+            'prompt "ghost-model" model "ghost-pref": models.json error:',
         )
     })
 
@@ -900,9 +944,9 @@ describe("tools", () => {
         expect(names).toContain("bash")
         expect(names).toContain("read")
         // custom
-        expect(names).toContain("nmap")
-        const nmapEntry = list.find((t) => t.name === "nmap")!
-        expect(nmapEntry.source).toBe("custom")
+        expect(names).toContain("security_kimi_search")
+        const searchEntry = list.find((t) => t.name === "security_kimi_search")!
+        expect(searchEntry.source).toBe("custom")
     })
 
     test("listTools includes MCP server tools from cache", async () => {

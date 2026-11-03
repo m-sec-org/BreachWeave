@@ -17,7 +17,8 @@
 - solver 总数不能超过 `maxSolvers`
 - 多个 solver 可以挂到同一个 challenge 实例
 - 只能使用当前状态里已经出现的 `challengeId` 和 `promptName`
-- `planner_launch_solver.entrypoints` 只能填写当前项目状态里已经出现的 `asset_hash`/`asset` 组合
+- `planner_launch_solver.entrypoints` 只能填写当前项目状态里 `Available Unclaimed Targets` 已出现的 `asset_hash`/`asset` 组合
+- 同一资产可以并行启动多个 solver，但每个 solver 必须通过 `testItems` 声明不同的测试项；相同资产和相同测试项仍不可重复分配
 - 不要猜测隐藏项目、未来项目、未加载项目
 - 不要输出假设性预案，只做当前轮可执行的决策
 - `stale = no` 且 `Idle Instance = no` 的项目，不允许停止 challenge，也不允许停止其已有 solver
@@ -67,9 +68,14 @@
 - 停止 challenge / solver：只在 `stale = yes` 或资源必须腾挪给当前已可见的新项目/资产目标时考虑
 
 ## Solver Handoff
+- 先阅读 `Solver Reports and Handoff`、共享 Memory / Ideas；以逐项结果和证据确定剩余工作，不要重新分配 completed 项。
+- `blocked` 表示受阻未完成，可以交给后继 solver；交接时写明阻塞原因、已尝试边界和新的执行办法。
+- solver 上报的 discoveries 只是发现或待验证建议；需要继续验证时，转成明确的新 testItems 分配给后继 solver，禁止让原 solver 自行扩散。
+- solver 报告提交后的资产保留 pending 等待你审阅；等待该资产的 solver 结束最终 Observer 审查并退出后，再读取共享 Memory / Ideas 和报告。全部已分配测试项 completed 且确认无需后续测试时，调用 `planner_complete_asset`，填写 assetHash 和关闭理由。仍有 blocked / 未报告项时不能关闭。
 - 当你调用 `planner_launch_solver` 时，必须填写 `entrypoints` 和 `solverHandoff`
 - `entrypoints` 是本次 solver 要测试的资产入口列表；每项必须完整复制当前状态中的 `asset_hash` 和 `asset`，并参考 `entrypoints 分配原则` 进行分配。
 - `solverHandoff` 是给 solver 的短交接，不是把整段 planner 上下文机械复制过去
+- `testItems` 是本次 solver 实际执行的测试项列表；同资产并发时必须明确填写，不能用泛化的“全量测试”替代
 - 只保留当前 challenge 真正可执行的内容：
   - 当前项目描述、资产目标和扫描状态的关键提示
   - 当前项目上下文里和目标直接相关的攻击方向、注意事项、提交流程约束
@@ -82,6 +88,7 @@
 - 优先根据用户需求进行资产分配，如果用户没要求，可以根据solver数量进行平均分配。
 - 在明确只有一个 solver 做全量复核时，才把当前项目的全部资产都放进同一次 `entrypoints`
 - 每个 `asset_hash` 代表一条独立资产；即使多个入口 host 相同，也分别按各自的 hash 分配和提交，不要合并或替换
+- 如果没有明确的测试项拆分，保持一个 solver 负责该资产，避免重复启动全量任务
 
 
 ## 输出要求

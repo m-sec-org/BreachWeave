@@ -1,8 +1,8 @@
 import { resolve, basename } from "path"
 import { readdir, mkdir, unlink } from "fs/promises"
 import { existsSync } from "fs"
-import { parseFrontmatter, stripFrontmatter, createSyntheticSourceInfo } from "@mariozechner/pi-coding-agent"
-import type { PromptTemplate } from "@mariozechner/pi-coding-agent"
+import { parseFrontmatter, stripFrontmatter, createSyntheticSourceInfo } from "@earendil-works/pi-coding-agent"
+import type { PromptTemplate } from "@earendil-works/pi-coding-agent"
 import { BUILTIN_PROMPTS } from "../builtin-assets.generated"
 
 export const CHALLENGE_PLANNER_PROMPT_NAME = "CHALLENGE_PLANNER"
@@ -116,6 +116,7 @@ export async function initBuiltinPrompts(configDir: string) {
         if (deleted.has(name)) continue
         const dest = resolve(destDir, entry)
         if (existsSync(dest)) continue
+        await mkdir(resolve(dest, ".."), { recursive: true })
         await Bun.write(dest, Bun.file(sourcePath))
     }
 }
@@ -125,16 +126,36 @@ function isBuiltin(name: string): boolean {
     return Object.prototype.hasOwnProperty.call(BUILTIN_PROMPTS, `${name}.md`)
 }
 
-// ── CRUD ──
+function builtinPromptSource(name: string): string | undefined {
+    return (BUILTIN_PROMPTS as unknown as Record<string, string>)[`${name}.md`]
+}
 
-export async function loadPrompt(configDir: string, name: string): Promise<PromptFile | undefined> {
-    const file = Bun.file(promptPath(configDir, name))
-    if (!(await file.exists())) return undefined
-    const raw = await file.text()
+function parsePrompt(name: string, raw: string): PromptFile {
     const { frontmatter } = parseFrontmatter<Record<string, unknown>>(raw)
     const meta = normalizePromptMeta((frontmatter ?? {}) as PromptMeta)
     const content = stripFrontmatter(raw).trim()
     return { name, meta, content, builtin: isBuiltin(name) }
+}
+
+// ── CRUD ──
+
+export async function loadPrompt(configDir: string, name: string): Promise<PromptFile | undefined> {
+    const file = Bun.file(promptPath(configDir, name))
+    const exists = await file.exists()
+    const sourcePath = builtinPromptSource(name)
+    if (!exists) {
+        if (!sourcePath || (await loadDeletedBuiltins(configDir)).has(name)) return undefined
+        return parsePrompt(name, await Bun.file(sourcePath).text())
+    }
+
+    const prompt = parsePrompt(name, await file.text())
+    // Older host settings could persist only planner frontmatter. Keep the
+    // configured metadata but restore the required built-in lifecycle prompt.
+    if (name === CHALLENGE_PLANNER_PROMPT_NAME && prompt.content.length === 0 && sourcePath) {
+        const builtin = parsePrompt(name, await Bun.file(sourcePath).text())
+        return { ...prompt, content: builtin.content }
+    }
+    return prompt
 }
 
 export async function savePrompt(configDir: string, prompt: PromptFile): Promise<void> {
@@ -206,6 +227,15 @@ export async function listPrompts(configDir: string): Promise<PromptFile[]> {
             if (prompt && !HIDDEN_PROMPT_NAMES.has(prompt.name)) results.push(prompt)
         }
     } catch {}
+
+    // A long-running host may discover a newly generated built-in after its
+    // initial startup. Include it without requiring a process restart.
+    for (const entry of Object.keys(BUILTIN_PROMPTS)) {
+        const name = basename(entry, ".md")
+        if (HIDDEN_PROMPT_NAMES.has(name) || results.some((prompt) => prompt.name === name)) continue
+        const prompt = await loadPrompt(configDir, name)
+        if (prompt) results.push(prompt)
+    }
 
     // Add deleted builtins for restore UX
     const deleted = await loadDeletedBuiltins(configDir)

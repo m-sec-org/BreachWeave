@@ -1,6 +1,6 @@
 import { ConfigManager } from "@tch/core"
 import {
-    bashToolDefinition,
+    createBashToolDefinition,
     createEditToolDefinition,
     createFindToolDefinition,
     createGrepToolDefinition,
@@ -11,8 +11,8 @@ import {
     type AgentSessionEvent,
     Theme,
     type ToolDefinition,
-} from "@mariozechner/pi-coding-agent"
-import { Box, Container, matchesKey, ProcessTerminal, Text, TUI, type Component } from "@mariozechner/pi-tui"
+} from "@earendil-works/pi-coding-agent"
+import { Box, Container, matchesKey, ProcessTerminal, Text, TuiMainScreen, type Component, type TUI } from "@earendil-works/pi-tui"
 
 type SolverEventListener = (event: AgentSessionEvent) => void
 
@@ -36,11 +36,12 @@ interface ToolResultContentBlock {
 interface ToolResultLike {
     content: ToolResultContentBlock[]
     details?: unknown
+    durationMs?: number
 }
 
 const BUILTIN_TOOL_DEFINITIONS = new Map<string, ToolDefinition<any, any>>([
     ["read", createReadToolDefinition(process.cwd())],
-    ["bash", bashToolDefinition],
+    ["bash", createBashToolDefinition(process.cwd())],
     ["edit", createEditToolDefinition(process.cwd())],
     ["write", createWriteToolDefinition(process.cwd())],
     ["grep", createGrepToolDefinition(process.cwd())],
@@ -105,7 +106,8 @@ const appTheme = await createThemeFromColors({
 })
 
 async function createTheme(name: "dark" | "light"): Promise<Theme> {
-    const raw = (await Bun.file(`node_modules/.bun/node_modules/@mariozechner/pi-coding-agent/dist/modes/interactive/theme/${name}.json`).json()) as {
+    const themeUrl = new URL(`./modes/interactive/theme/${name}.json`, import.meta.resolve("@earendil-works/pi-coding-agent"))
+    const raw = (await Bun.file(themeUrl).json()) as {
         name: string
         vars?: Record<string, string | number>
         colors: Record<string, string | number>
@@ -258,6 +260,8 @@ class SolverToolExecutionComponent extends Container {
             expanded: this.expanded,
             showImages: false,
             isError: this.result?.isError ?? false,
+            durationMs: this.result?.durationMs,
+            outputPad: 1,
         }
     }
 
@@ -322,7 +326,7 @@ class SolverToolExecutionComponent extends Container {
 }
 
 class SolverTui {
-    private readonly ui = new TUI(new ProcessTerminal())
+    private readonly ui = new TuiMainScreen(new ProcessTerminal())
     private readonly header = new Text("", 0, 0)
     private readonly transcript = new Container()
     private readonly thinking = new Text("", 0, 0)
@@ -348,7 +352,7 @@ class SolverTui {
     ) {
         initTheme(undefined, false)
         process.on("SIGINT", this.handleSigint)
-        this.removeInputListener = this.ui.addInputListener((data) => {
+        this.removeInputListener = this.ui.addInputListener((data: string) => {
             if (!matchesKey(data, "ctrl+c")) return
             this.stop(130)
             return { consume: true }
@@ -444,7 +448,7 @@ class SolverTui {
             }
             case "tool_execution_end": {
                 const tool = this.pendingTools.get(event.toolCallId)
-                tool?.updateResult({ ...(event.result as ToolResultLike), isError: event.isError }, false)
+                tool?.updateResult({ ...(event.result as ToolResultLike), isError: event.isError, durationMs: event.durationMs }, false)
                 if (event.isError) this.state.phase = "error"
                 break
             }

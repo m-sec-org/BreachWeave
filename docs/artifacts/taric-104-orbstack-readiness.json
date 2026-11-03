@@ -1,0 +1,26 @@
+{
+  "generatedAt": "2026-11-01T14:23:38.620Z",
+  "status": "blocked",
+  "evidenceClass": "local_deployment_probe",
+  "productionEvidence": false,
+  "checks": [
+    {
+      "id": "docker_api",
+      "command": "docker version --format {{.Server.Version}}",
+      "exitCode": 143,
+      "timedOut": true,
+      "durationMs": 10017,
+      "output": "",
+      "diagnostic": ""
+    },
+    {
+      "id": "postgres_ready",
+      "command": "docker exec taric-authority-postgres-1 pg_isready -U taric -d taric",
+      "exitCode": 143,
+      "timedOut": true,
+      "durationMs": 10011,
+      "output": "",
+      "diagnostic": ""
+    }
+  ]
+}

@@ -1,7 +1,7 @@
 import { TCH_AGENT_HOME_DIR } from "../config/index"
 import { resolve } from "path"
-import type { Message } from "@mariozechner/pi-ai"
-import type { AgentSessionEvent } from "@mariozechner/pi-coding-agent"
+import type { Message } from "@earendil-works/pi-ai"
+import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent"
 import type { HostBridgeRequestEvent } from "../challenge/host-bridge-types"
 import type { RpcCommand } from "../solver/rpc/rpc-types"
 
@@ -16,7 +16,7 @@ export interface ContainerConfig {
     /** Extra volume binds (host:container format) */
     binds?: string[]
     /** Docker network mode */
-    networkMode?: "bridge" | "host"
+    networkMode?: "bridge" | "host" | "none"
 }
 
 export interface SolverInstance {
@@ -34,6 +34,7 @@ export interface SolverInstance {
     task: string
     /** Bound challenge id when launched in challenge mode */
     challengeId?: string
+    projectId?: string
     /** Current status */
     status: "starting" | "running" | "stopping" | "stopped" | "error"
     /** Creation timestamp */

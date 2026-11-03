@@ -5,7 +5,7 @@ See [AGENTS.md](../../../AGENTS.md) for additional guidelines.
 ## Setup
 
 ```bash
-git clone https://github.com/badlogic/pi-mono
+git clone https://github.com/earendil-works/pi
 cd pi-mono
 npm install
 npm run build

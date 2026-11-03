@@ -1,6 +1,6 @@
 # pi-tui & pi-web-ui — UI Adapter Patterns
 
-## pi-tui (`packages/tui/`, `@mariozechner/pi-tui` v0.62.0)
+## pi-tui (`packages/tui/`, `@earendil-works/pi-tui` v1.4.0)
 
 Custom terminal UI framework with differential rendering — NOT built on Ink/React. Raw ANSI escape sequences + Node's `process.stdin/stdout`.
 
@@ -116,7 +116,7 @@ Z-ordering by focus order. Focus capture/release. Visibility callbacks based on 
 
 ---
 
-## pi-web-ui (`packages/web-ui/`, `@mariozechner/pi-web-ui` v0.62.0)
+## Project Web UI adapter
 
 Web component library: LitElement (from `lit`) + Tailwind CSS v4 + IndexedDB. Some sub-components use `@mariozechner/mini-lit`.
 
@@ -227,7 +227,7 @@ TUI is more tightly coupled (uses `AgentSession` with compaction, model cycling,
 ```typescript
 class InteractiveMode {
   constructor(session: AgentSession, options) {
-    this.ui = new TUI(new ProcessTerminal(), showCursor)
+    this.ui = new TuiMainScreen(new ProcessTerminal(), showCursor)
     this.session.subscribe(async (event) => this.handleEvent(event))
   }
 

@@ -1,20 +1,13 @@
-import type { ToolDefinition } from "@mariozechner/pi-coding-agent"
+import type { ToolDefinition } from "@earendil-works/pi-coding-agent"
 import {
-    bashTool,
-    readTool,
-    editTool,
-    writeTool,
-    grepTool,
-    findTool,
-    lsTool,
-    bashToolDefinition,
-    readToolDefinition,
-    editToolDefinition,
-    writeToolDefinition,
-    grepToolDefinition,
-    findToolDefinition,
-    lsToolDefinition,
-} from "@mariozechner/pi-coding-agent"
+    createBashToolDefinition,
+    createEditToolDefinition,
+    createFindToolDefinition,
+    createGrepToolDefinition,
+    createLsToolDefinition,
+    createReadToolDefinition,
+    createWriteToolDefinition,
+} from "@earendil-works/pi-coding-agent"
 import { documentFindingTool } from "./document-finding"
 import { ingestSubAgentOutputTool } from "./ingest-sub-agent-output"
 import { submitSubAgentOutputTool } from "./submit-sub-agent-output"
@@ -36,26 +29,17 @@ export const customTools: ToolDefinition[] = [
 
 /** 所有内置工具定义（用于注册到 registeredTools） */
 export const builtinToolDefinitions: Array<ToolDefinition<any, any, any>> = [
-    bashToolDefinition,
-    readToolDefinition,
-    editToolDefinition,
-    writeToolDefinition,
-    grepToolDefinition,
-    findToolDefinition,
-    lsToolDefinition,
+    createBashToolDefinition(process.cwd()),
+    createReadToolDefinition(process.cwd()),
+    createEditToolDefinition(process.cwd()),
+    createWriteToolDefinition(process.cwd()),
+    createGrepToolDefinition(process.cwd()),
+    createFindToolDefinition(process.cwd()),
+    createLsToolDefinition(process.cwd()),
 ]
 
-/** 内置工具运行时实例（用于 CreateAgentSessionOptions.tools） */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export const builtinToolMap: Record<string, any> = {
-    read: readTool,
-    bash: bashTool,
-    edit: editTool,
-    write: writeTool,
-    grep: grepTool,
-    find: findTool,
-    ls: lsTool,
-}
+/** Built-in names are passed to the SDK as a session tool allowlist. */
+export const builtinToolNames = new Set(["read", "bash", "edit", "write", "grep", "find", "ls"])
 
 /** UI 展示用的工具摘要 */
 export interface ToolEntry {

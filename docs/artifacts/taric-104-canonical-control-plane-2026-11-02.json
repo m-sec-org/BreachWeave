@@ -1,0 +1,68 @@
+{
+  "reportVersion": "breachweave-canonical-control-plane-fixture/1",
+  "generatedAt": "2026-11-02T01:21:47.276Z",
+  "sourceCommit": "1c466f4d8ad8f775f98bf867453b81230469287a",
+  "evidenceClass": "local_source_dist_sqlite_embedded_host_operator",
+  "assertions": [
+    {
+      "id": "canonical_scope_revision_binds_verified_roe",
+      "passed": true
+    },
+    {
+      "id": "bootstrap_admits_resource_revision_work_cells_and_manifest",
+      "passed": true
+    },
+    {
+      "id": "bootstrap_replay_preserves_canonical_ids",
+      "passed": true
+    },
+    {
+      "id": "coverage_complete_fixed_domain_pages_preserve_watermark",
+      "passed": true
+    },
+    {
+      "id": "untested_manifest_gate_cannot_close",
+      "passed": true
+    },
+    {
+      "id": "checkpoint_persists_immutable_scope_and_recovery_locator",
+      "passed": true
+    },
+    {
+      "id": "fresh_host_discovers_run_and_restores_checkpoint_without_local_map",
+      "passed": true
+    },
+    {
+      "id": "explicit_not_applicable_reasons_produce_passing_complete_gate",
+      "passed": true
+    },
+    {
+      "id": "report_snapshot_commit_replay_preserves_canonical_identity",
+      "passed": true
+    },
+    {
+      "id": "close_rejects_stale_authority_watermark",
+      "passed": true
+    },
+    {
+      "id": "canonical_close_atomically_completes_engagement",
+      "passed": true
+    },
+    {
+      "id": "new_process_reconstructs_scope_work_checkpoint_cells_report_and_close",
+      "passed": true
+    },
+    {
+      "id": "reopen_appends_a_decision_and_preserves_close_history",
+      "passed": true
+    }
+  ],
+  "metrics": {
+    "passed": 13,
+    "total": 13
+  },
+  "productionEvidence": false,
+  "userConfigurationRead": false,
+  "targetTrafficGenerated": false,
+  "temporaryStateRemoved": true
+}

@@ -11,6 +11,7 @@ export interface MemoryEntry {
     content: string
     refs: string[]
     source: string
+    trustState?: "local" | "candidate" | "admitted"
     created_at: string
     updated_at: string
 }
@@ -29,6 +30,7 @@ export interface IdeaRecord {
     normalized: string
     status: IdeaStatus
     result: string
+    trustState?: "local" | "candidate" | "admitted"
     created_at: string
     updated_at: string
 }

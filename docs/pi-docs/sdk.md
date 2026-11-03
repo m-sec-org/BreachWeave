@@ -16,16 +16,10 @@ See [examples/sdk/](../examples/sdk/) for working examples from minimal to full 
 ## Quick Start
 
 ```typescript
-import { AuthStorage, createAgentSession, ModelRegistry, SessionManager } from "@mariozechner/pi-coding-agent";
-
-// Set up credential storage and model registry
-const authStorage = AuthStorage.create();
-const modelRegistry = ModelRegistry.create(authStorage);
+import { createAgentSession, SessionManager } from "@earendil-works/pi-coding-agent";
 
 const { session } = await createAgentSession({
   sessionManager: SessionManager.inMemory(),
-  authStorage,
-  modelRegistry,
 });
 
 session.subscribe((event) => {
@@ -40,7 +34,7 @@ await session.prompt("What files are in the current directory?");
 ## Installation
 
 ```bash
-npm install @mariozechner/pi-coding-agent
+npm install @earendil-works/pi-coding-agent
 ```
 
 The SDK is included in the main package. No separate installation needed.
@@ -54,7 +48,7 @@ The main factory function for a single `AgentSession`.
 `createAgentSession()` uses a `ResourceLoader` to supply extensions, skills, prompt templates, themes, and context files. If you do not provide one, it uses `DefaultResourceLoader` with standard discovery.
 
 ```typescript
-import { createAgentSession } from "@mariozechner/pi-coding-agent";
+import { createAgentSession } from "@earendil-works/pi-coding-agent";
 
 // Minimal: defaults with DefaultResourceLoader
 const { session } = await createAgentSession();
@@ -62,7 +56,7 @@ const { session } = await createAgentSession();
 // Custom: override specific options
 const { session } = await createAgentSession({
   model: myModel,
-  tools: [readTool, bashTool],
+  tools: ["read", "bash"],
   sessionManager: SessionManager.inMemory(),
 });
 ```
@@ -127,10 +121,10 @@ import {
   AgentSessionRuntimeHost,
   createAgentSessionRuntime,
   SessionManager,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 
 const bootstrap = {
-  // Optional: authStorage, model, thinkingLevel, tools, customTools, resourceLoader
+  // Optional: modelRuntime, model, thinkingLevel, tools, customTools, resourceLoader
 };
 
 const runtime = await createAgentSessionRuntime(bootstrap, {
@@ -202,7 +196,7 @@ Both `steer()` and `followUp()` expand file-based prompt templates but error on 
 
 ### Agent and AgentState
 
-The `Agent` class (from `@mariozechner/pi-agent-core`) handles the core LLM interaction. Access it via `session.agent`.
+The `Agent` class (from `@earendil-works/pi-agent-core`) handles the core LLM interaction. Access it via `session.agent`.
 
 ```typescript
 // Access current state
@@ -331,11 +325,11 @@ When you pass a custom `ResourceLoader`, `cwd` and `agentDir` no longer control 
 ### Model
 
 ```typescript
-import { getModel } from "@mariozechner/pi-ai";
-import { AuthStorage, ModelRegistry } from "@mariozechner/pi-coding-agent";
+import { getModel } from "@earendil-works/pi-ai";
+import { ModelRuntime, ModelRegistry } from "@earendil-works/pi-coding-agent";
 
-const authStorage = AuthStorage.create();
-const modelRegistry = ModelRegistry.create(authStorage);
+const modelRuntime = await ModelRuntime.create();
+const modelRegistry = new ModelRegistry(modelRuntime);
 
 // Find specific built-in model (doesn't check if API key exists)
 const opus = getModel("anthropic", "claude-opus-4-5");
@@ -350,16 +344,15 @@ const available = await modelRegistry.getAvailable();
 
 const { session } = await createAgentSession({
   model: opus,
-  thinkingLevel: "medium", // off, minimal, low, medium, high, xhigh
+  thinkingLevel: "medium", // minimal, low, medium, high, xhigh
   
   // Models for cycling (Ctrl+P in interactive mode)
   scopedModels: [
     { model: opus, thinkingLevel: "high" },
-    { model: haiku, thinkingLevel: "off" },
+    { model: haiku, thinkingLevel: "minimal" },
   ],
   
-  authStorage,
-  modelRegistry,
+  modelRuntime,
 });
 ```
 
@@ -372,40 +365,33 @@ If no model is provided:
 
 ### API Keys and OAuth
 
-API key resolution priority (handled by AuthStorage):
-1. Runtime overrides (via `setRuntimeApiKey`, not persisted)
-2. Stored credentials in `auth.json` (API keys or OAuth tokens)
-3. Environment variables (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, etc.)
-4. Fallback resolver (for custom provider keys from `models.json`)
+API key resolution is handled by `ModelRuntime` and its credential store. The runtime reads
+`auth.json`, `models.json`, and provider environment variables using the configured agent directory.
 
 ```typescript
-import { AuthStorage, ModelRegistry } from "@mariozechner/pi-coding-agent";
+import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 
 // Default: uses ~/.pi/agent/auth.json and ~/.pi/agent/models.json
-const authStorage = AuthStorage.create();
-const modelRegistry = ModelRegistry.create(authStorage);
+const modelRuntime = await ModelRuntime.create();
 
 const { session } = await createAgentSession({
   sessionManager: SessionManager.inMemory(),
-  authStorage,
-  modelRegistry,
+  modelRuntime,
 });
 
-// Runtime API key override (not persisted to disk)
-authStorage.setRuntimeApiKey("anthropic", "sk-my-temp-key");
+// Runtime API key override (synchronized with the runtime credential store)
+await modelRuntime.setRuntimeApiKey("anthropic", "sk-my-temp-key");
 
 // Custom auth storage location
-const customAuth = AuthStorage.create("/my/app/auth.json");
-const customRegistry = ModelRegistry.create(customAuth, "/my/app/models.json");
+const customRuntime = await ModelRuntime.create({
+  authPath: "/my/app/auth.json",
+  modelsPath: "/my/app/models.json",
+});
 
 const { session } = await createAgentSession({
   sessionManager: SessionManager.inMemory(),
-  authStorage: customAuth,
-  modelRegistry: customRegistry,
+  modelRuntime: customRuntime,
 });
-
-// No custom models.json (built-in models only)
-const simpleRegistry = ModelRegistry.inMemory(authStorage);
 ```
 
 > See [examples/sdk/09-api-keys-and-oauth.ts](../examples/sdk/09-api-keys-and-oauth.ts)
@@ -415,9 +401,11 @@ const simpleRegistry = ModelRegistry.inMemory(authStorage);
 Use a `ResourceLoader` to override the system prompt:
 
 ```typescript
-import { createAgentSession, DefaultResourceLoader } from "@mariozechner/pi-coding-agent";
+import { createAgentSession, DefaultResourceLoader, getAgentDir } from "@earendil-works/pi-coding-agent";
 
 const loader = new DefaultResourceLoader({
+  cwd: process.cwd(),
+  agentDir: getAgentDir(),
   systemPromptOverride: () => "You are a helpful assistant.",
 });
 await loader.reload();
@@ -430,21 +418,16 @@ const { session } = await createAgentSession({ resourceLoader: loader });
 ### Tools
 
 ```typescript
-import {
-  codingTools,   // read, bash, edit, write (default)
-  readOnlyTools, // read, grep, find, ls
-  readTool, bashTool, editTool, writeTool,
-  grepTool, findTool, lsTool,
-} from "@mariozechner/pi-coding-agent";
+import { createAgentSession } from "@earendil-works/pi-coding-agent";
 
 // Use built-in tool set
 const { session } = await createAgentSession({
-  tools: readOnlyTools,
+  tools: ["read", "grep", "find", "ls"],
 });
 
-// Pick specific tools
+// Pick specific tools by name
 const { session } = await createAgentSession({
-  tools: [readTool, bashTool, grepTool],
+  tools: ["read", "bash", "grep"],
 });
 ```
 
@@ -463,7 +446,7 @@ import {
   createGrepTool,
   createFindTool,
   createLsTool,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 
 const cwd = "/path/to/project";
 
@@ -476,7 +459,7 @@ const { session } = await createAgentSession({
 // Or pick specific tools
 const { session } = await createAgentSession({
   cwd,
-  tools: [createReadTool(cwd), createBashTool(cwd), createGrepTool(cwd)],
+  tools: ["read", "bash", "grep"],
 });
 ```
 
@@ -492,8 +475,8 @@ const { session } = await createAgentSession({
 ### Custom Tools
 
 ```typescript
-import { Type } from "@sinclair/typebox";
-import { createAgentSession, type ToolDefinition } from "@mariozechner/pi-coding-agent";
+import { Type } from "typebox";
+import { createAgentSession, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 
 // Inline custom tool
 const myTool: ToolDefinition = {
@@ -524,7 +507,7 @@ Custom tools passed via `customTools` are combined with extension-registered too
 Extensions are loaded by the `ResourceLoader`. `DefaultResourceLoader` discovers extensions from `~/.pi/agent/extensions/`, `.pi/extensions/`, and settings.json extension sources.
 
 ```typescript
-import { createAgentSession, DefaultResourceLoader } from "@mariozechner/pi-coding-agent";
+import { createAgentSession, DefaultResourceLoader } from "@earendil-works/pi-coding-agent";
 
 const loader = new DefaultResourceLoader({
   additionalExtensionPaths: ["/path/to/my-extension.ts"],
@@ -546,7 +529,7 @@ Extensions can register tools, subscribe to events, add commands, and more. See 
 **Event Bus:** Extensions can communicate via `pi.events`. Pass a shared `eventBus` to `DefaultResourceLoader` if you need to emit or listen from outside:
 
 ```typescript
-import { createEventBus, DefaultResourceLoader } from "@mariozechner/pi-coding-agent";
+import { createEventBus, DefaultResourceLoader } from "@earendil-works/pi-coding-agent";
 
 const eventBus = createEventBus();
 const loader = new DefaultResourceLoader({
@@ -566,7 +549,7 @@ import {
   createAgentSession,
   DefaultResourceLoader,
   type Skill,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 
 const customSkill: Skill = {
   name: "my-skill",
@@ -592,7 +575,7 @@ const { session } = await createAgentSession({ resourceLoader: loader });
 ### Context Files
 
 ```typescript
-import { createAgentSession, DefaultResourceLoader } from "@mariozechner/pi-coding-agent";
+import { createAgentSession, DefaultResourceLoader } from "@earendil-works/pi-coding-agent";
 
 const loader = new DefaultResourceLoader({
   agentsFilesOverride: (current) => ({
@@ -616,7 +599,7 @@ import {
   createAgentSession,
   DefaultResourceLoader,
   type PromptTemplate,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 
 const customCommand: PromptTemplate = {
   name: "deploy",
@@ -648,7 +631,7 @@ import {
   createAgentSession,
   createAgentSessionRuntime,
   SessionManager,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 
 // In-memory (no persistence)
 const { session } = await createAgentSession({
@@ -727,7 +710,7 @@ sm.createBranchedSession(leafId);       // Extract path to new file
 ### Settings Management
 
 ```typescript
-import { createAgentSession, SettingsManager, SessionManager } from "@mariozechner/pi-coding-agent";
+import { createAgentSession, SettingsManager, SessionManager } from "@earendil-works/pi-coding-agent";
 
 // Default: loads from files (global + project merged)
 const { session } = await createAgentSession({
@@ -783,7 +766,7 @@ Use `DefaultResourceLoader` to discover extensions, skills, prompts, themes, and
 import {
   DefaultResourceLoader,
   getAgentDir,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 
 const loader = new DefaultResourceLoader({
   cwd,
@@ -824,30 +807,28 @@ interface LoadExtensionsResult {
 ## Complete Example
 
 ```typescript
-import { getModel } from "@mariozechner/pi-ai";
-import { Type } from "@sinclair/typebox";
+import { getModel } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import {
-  AuthStorage,
   createAgentSession,
   DefaultResourceLoader,
+  ModelRuntime,
   ModelRegistry,
   SessionManager,
   SettingsManager,
-  readTool,
-  bashTool,
   type ToolDefinition,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 
-// Set up auth storage (custom location)
-const authStorage = AuthStorage.create("/custom/agent/auth.json");
+// Set up the model/auth runtime (custom location)
+const modelRuntime = await ModelRuntime.create({
+  authPath: "/custom/agent/auth.json",
+  modelsPath: "/custom/agent/models.json",
+});
 
 // Runtime API key override (not persisted)
 if (process.env.MY_KEY) {
-  authStorage.setRuntimeApiKey("anthropic", process.env.MY_KEY);
+  await modelRuntime.setRuntimeApiKey("anthropic", process.env.MY_KEY);
 }
-
-// Model registry (no custom models.json)
-const modelRegistry = ModelRegistry.create(authStorage);
 
 // Inline tool
 const statusTool: ToolDefinition = {
@@ -883,11 +864,10 @@ const { session } = await createAgentSession({
   agentDir: "/custom/agent",
 
   model,
-  thinkingLevel: "off",
-  authStorage,
-  modelRegistry,
+  thinkingLevel: "minimal",
+  modelRuntime,
 
-  tools: [readTool, bashTool],
+  tools: ["read", "bash"],
   customTools: [statusTool],
   resourceLoader: loader,
 
@@ -918,7 +898,7 @@ import {
   createAgentSessionRuntime,
   InteractiveMode,
   SessionManager,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 
 const bootstrap = {};
 const runtime = await createAgentSessionRuntime(bootstrap, {
@@ -948,7 +928,7 @@ import {
   createAgentSessionRuntime,
   runPrintMode,
   SessionManager,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 
 const bootstrap = {};
 const runtime = await createAgentSessionRuntime(bootstrap, {
@@ -975,7 +955,7 @@ import {
   createAgentSessionRuntime,
   runRpcMode,
   SessionManager,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 
 const bootstrap = {};
 const runtime = await createAgentSessionRuntime(bootstrap, {
@@ -1021,7 +1001,7 @@ createAgentSessionRuntime
 AgentSessionRuntimeHost
 
 // Auth and Models
-AuthStorage
+ModelRuntime
 ModelRegistry
 
 // Resource loading
@@ -1035,15 +1015,11 @@ createEventBus
 SessionManager
 SettingsManager
 
-// Built-in tools (use process.cwd())
-codingTools
-readOnlyTools
-readTool, bashTool, editTool, writeTool
-grepTool, findTool, lsTool
-
-// Tool factories (for custom cwd)
+// Tool factories (for custom cwd or custom tool definitions)
 createCodingTools
 createReadOnlyTools
+createCodingToolDefinitions
+createReadOnlyToolDefinitions
 createReadTool, createBashTool, createEditTool, createWriteTool
 createGrepTool, createFindTool, createLsTool
 

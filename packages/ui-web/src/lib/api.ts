@@ -8,8 +8,8 @@ import type { PromptFile } from "../../../core/src/config/prompts/index"
 import type { BuiltInProvider, ConfiguredModel, ModelConfigEntry, ModelDefinition, ProviderPrefEntry } from "../../../core/src/config/providers/types"
 import type { ToolEntry } from "../../../core/src/config/tools/index"
 import type { RuntimeMessageThread, RuntimeSolverDetails, SolverInstance } from "../../../core/src/runtime/types"
-import type { Skill } from "@mariozechner/pi-coding-agent"
-import type { Api, Model } from "@mariozechner/pi-ai"
+import type { Skill } from "@earendil-works/pi-coding-agent"
+import type { Api, Model } from "@earendil-works/pi-ai"
 import type { ServerEntry as McpServerEntry, McpSettings } from "pi-mcp-adapter/types.js"
 
 // 从 @tch/core re-export，前端组件直接用
@@ -371,6 +371,10 @@ export interface ChallengeDetails {
     stats: ChallengeStatsRecord
     solver_stats: SolverStatsRecord[]
     solvers: SolverInstance[]
+    authority_work?: import("../authorized-work-view").AuthorizedWorkItemView[]
+    authority_coverage?: import("../authorized-work-view").AuthorizedCoverageCellView[]
+    authority_reports?: import("../authorized-work-view").AuthorizedReportIndexView[]
+    authority_read_seq?: number
 }
 
 export type ChallengeListItem = ChallengeInfoRecord & {

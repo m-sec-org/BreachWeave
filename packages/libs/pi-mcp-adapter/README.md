@@ -4,7 +4,7 @@
 
 # Pi MCP Adapter
 
-Use MCP servers with [Pi](https://github.com/badlogic/pi-mono/) without burning your context window.
+Use MCP servers with [Pi](https://github.com/earendil-works/pi/) without burning your context window.
 
 https://github.com/user-attachments/assets/4b7c66ff-e27e-4639-b195-22c3db406a5a
 

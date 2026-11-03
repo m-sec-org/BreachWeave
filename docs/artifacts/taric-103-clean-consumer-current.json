@@ -1,0 +1,333 @@
+{
+  "format": "breachweave-taric-clean-consumer/1",
+  "startedAt": "2026-11-01T13:45:14.779Z",
+  "completedAt": "2026-11-01T13:46:29.727Z",
+  "status": "passed",
+  "runtime": {
+    "bun": "1.3.13",
+    "platform": "darwin",
+    "architecture": "x64",
+    "npmPackNodeVersion": "v22.21.1",
+    "npmPackCliVersion": "11.6.2",
+    "typescriptVersion": "Version 5.9.3"
+  },
+  "source": {
+    "commit": "1c466f4d8ad8f775f98bf867453b81230469287a",
+    "tree": "1065644d4a17f9adc8945a8ac1c5886c762f8ffe",
+    "cleanBefore": true,
+    "cleanAfter": true,
+    "registrySourceDigest": "sha256:866a96b8fdb650c56c6edae59840b854930f4392f49edd5941ad67c6425b8603"
+  },
+  "expected": {
+    "commit": "1c466f4d8ad8f775f98bf867453b81230469287a",
+    "registrySourceDigest": "sha256:866a96b8fdb650c56c6edae59840b854930f4392f49edd5941ad67c6425b8603",
+    "registryDigest": "sha256:a37745ab273ccde0574d9c256cd5b984b58a5a98779d169280472f8b0301dd47",
+    "operationCount": 66,
+    "tuple": {
+      "apiContractVersion": "1.4.0",
+      "adapterContractVersion": "1.1",
+      "schemaVersion": "1.0.0",
+      "coreVersion": "1.0.4",
+      "storageContract": "authority-storage/4",
+      "sqlContract": "authority-sql/4",
+      "policyVersion": "1.0.0",
+      "policyDigest": "sha256:264736f0b5c561c870f9aa9a94a539123ffe0f80901d98c0944131d0b2a27e13"
+    }
+  },
+  "observed": {
+    "packageImports": true,
+    "bunSqliteQuery": true,
+    "canonicalCloseReopenRead": true,
+    "emptyReplacementRejected": true,
+    "persistedRecords": [
+      {
+        "kind": "engagement",
+        "id": "01a1975c-7f6e-75d5-9440-a80f6323a6be",
+        "version": 1
+      },
+      {
+        "kind": "scope",
+        "id": "01a1975c-7f6e-71e6-9bb6-0d2039a3683c",
+        "version": 1
+      }
+    ],
+    "workspaceLinked": false,
+    "operationCount": 66,
+    "registryDigest": "sha256:a37745ab273ccde0574d9c256cd5b984b58a5a98779d169280472f8b0301dd47",
+    "tuple": {
+      "apiContractVersion": "1.4.0",
+      "adapterContractVersion": "1.1",
+      "schemaVersion": "1.0.0",
+      "coreVersion": "1.0.4",
+      "storageContract": "authority-storage/4",
+      "sqlContract": "authority-sql/4",
+      "policyVersion": "1.0.0",
+      "policyDigest": "sha256:264736f0b5c561c870f9aa9a94a539123ffe0f80901d98c0944131d0b2a27e13"
+    },
+    "cliApiVersion": "1.4.0"
+  },
+  "artifacts": [
+    {
+      "packingMethod": "bun_pm_pack",
+      "packageName": "@taric/schemas",
+      "version": "1.0.4",
+      "filename": "taric-schemas-1.0.4.tgz",
+      "actualIntegrity": "sha512-z4enAjx4EQxuaLxcgmhV/UXtZkJTFkV4715Ok3kvY0K4fKHg4drL9VrD/ndoaNzgl8yHGHJatJ2Ji6qvuVaOTA==",
+      "expectedIntegrity": "sha512-sNr6ZBew0Ffb78CvM9LTEmGubnMmjyIyX+Ui3G+wFLOCWuTf35SWPL9CgB8wvcPrBcvIn+Gk/Aw5VsPKAv+O8Q==",
+      "integrityMatches": false,
+      "bytes": 48885
+    },
+    {
+      "packingMethod": "npm_pack_under_node",
+      "packageName": "@taric/schemas",
+      "version": "1.0.4",
+      "filename": "taric-schemas-1.0.4.tgz",
+      "actualIntegrity": "sha512-sNr6ZBew0Ffb78CvM9LTEmGubnMmjyIyX+Ui3G+wFLOCWuTf35SWPL9CgB8wvcPrBcvIn+Gk/Aw5VsPKAv+O8Q==",
+      "expectedIntegrity": "sha512-sNr6ZBew0Ffb78CvM9LTEmGubnMmjyIyX+Ui3G+wFLOCWuTf35SWPL9CgB8wvcPrBcvIn+Gk/Aw5VsPKAv+O8Q==",
+      "integrityMatches": true,
+      "bytes": 49893
+    },
+    {
+      "packingMethod": "bun_pm_pack",
+      "packageName": "@taric/core",
+      "version": "1.0.4",
+      "filename": "taric-core-1.0.4.tgz",
+      "actualIntegrity": "sha512-KVRuQC/oL4mtkIR0y1VePQ9VteGJp6Ox00mBmKRsI0A9ZdfTIZ05+V5oVWpc4ORrpWR6AHO7W3r03YNU6yI6qg==",
+      "expectedIntegrity": "sha512-ggpm5/CiDerdlvmbXEmaILGPkeNwTnGY+vNtYPB6AH8AZq/07UQCgnB61xMGh79m/Xrl6zE+BBUnODxJywZPKQ==",
+      "integrityMatches": false,
+      "bytes": 390180
+    },
+    {
+      "packingMethod": "npm_pack_under_node",
+      "packageName": "@taric/core",
+      "version": "1.0.4",
+      "filename": "taric-core-1.0.4.tgz",
+      "actualIntegrity": "sha512-ggpm5/CiDerdlvmbXEmaILGPkeNwTnGY+vNtYPB6AH8AZq/07UQCgnB61xMGh79m/Xrl6zE+BBUnODxJywZPKQ==",
+      "expectedIntegrity": "sha512-ggpm5/CiDerdlvmbXEmaILGPkeNwTnGY+vNtYPB6AH8AZq/07UQCgnB61xMGh79m/Xrl6zE+BBUnODxJywZPKQ==",
+      "integrityMatches": true,
+      "bytes": 382753
+    },
+    {
+      "packingMethod": "bun_pm_pack",
+      "packageName": "@taric/driver-bun-sqlite",
+      "version": "1.0.4",
+      "filename": "taric-driver-bun-sqlite-1.0.4.tgz",
+      "actualIntegrity": "sha512-Hkrl3u5VLyfUvy7WN6dZsTAz3DeR8n7RujbcwlDpMFPftn9JPd2ARSG3Y3r61p+8DnkiADTaWwYmJ3YrENy3rw==",
+      "expectedIntegrity": "sha512-RNh4SPWkQpStZ8xp6+RDQ2qKiUS2WPLoEFkGeIntPyK/OtPuM9KSwMtaslGWR2zGKzk4qab1/17JSxSMq65Q+g==",
+      "integrityMatches": false,
+      "bytes": 5960
+    },
+    {
+      "packingMethod": "npm_pack_under_node",
+      "packageName": "@taric/driver-bun-sqlite",
+      "version": "1.0.4",
+      "filename": "taric-driver-bun-sqlite-1.0.4.tgz",
+      "actualIntegrity": "sha512-RNh4SPWkQpStZ8xp6+RDQ2qKiUS2WPLoEFkGeIntPyK/OtPuM9KSwMtaslGWR2zGKzk4qab1/17JSxSMq65Q+g==",
+      "expectedIntegrity": "sha512-RNh4SPWkQpStZ8xp6+RDQ2qKiUS2WPLoEFkGeIntPyK/OtPuM9KSwMtaslGWR2zGKzk4qab1/17JSxSMq65Q+g==",
+      "integrityMatches": true,
+      "bytes": 5946
+    },
+    {
+      "packingMethod": "bun_pm_pack",
+      "packageName": "@taric/cli",
+      "version": "1.0.4",
+      "filename": "taric-cli-1.0.4.tgz",
+      "actualIntegrity": "sha512-tbfrb29d+GXMvjz5tcplSAtohGDIE94653Lbr6aujvKTSE8wZ6yZT7k7C9JKb0PXZ1kLgDZg4x/rEACiT6zKWA==",
+      "expectedIntegrity": "sha512-HeQfSURmk5TMNp/Xj13NZzIdM5qAvievT8svuWKPInc4cHrU0bzLO6rSZ427rCRlqf4wmOicG4G8TNCVuxW6DQ==",
+      "integrityMatches": false,
+      "bytes": 48484
+    },
+    {
+      "packingMethod": "npm_pack_under_node",
+      "packageName": "@taric/cli",
+      "version": "1.0.4",
+      "filename": "taric-cli-1.0.4.tgz",
+      "actualIntegrity": "sha512-HeQfSURmk5TMNp/Xj13NZzIdM5qAvievT8svuWKPInc4cHrU0bzLO6rSZ427rCRlqf4wmOicG4G8TNCVuxW6DQ==",
+      "expectedIntegrity": "sha512-HeQfSURmk5TMNp/Xj13NZzIdM5qAvievT8svuWKPInc4cHrU0bzLO6rSZ427rCRlqf4wmOicG4G8TNCVuxW6DQ==",
+      "integrityMatches": true,
+      "bytes": 47113
+    },
+    {
+      "packingMethod": "bun_pm_pack",
+      "packageName": "@taric/mcp",
+      "version": "1.0.4",
+      "filename": "taric-mcp-1.0.4.tgz",
+      "actualIntegrity": "sha512-i6z9nNbMS0vkOHvu/DD1zXWUU3BA/CeStv8ytjN7lddS6AaSnSPwFrQDIuF0jvISZt94xosZgC9gt2IG32/jng==",
+      "expectedIntegrity": "sha512-Yr8SHAv1KpAeaNOv8LJz5PcmD/zng4I8Eb8dT++0+VAqq0rH3otIzrho4bPqfA8nD4GCpSUgh25JKoWDspAxoQ==",
+      "integrityMatches": false,
+      "bytes": 9342
+    },
+    {
+      "packingMethod": "npm_pack_under_node",
+      "packageName": "@taric/mcp",
+      "version": "1.0.4",
+      "filename": "taric-mcp-1.0.4.tgz",
+      "actualIntegrity": "sha512-Yr8SHAv1KpAeaNOv8LJz5PcmD/zng4I8Eb8dT++0+VAqq0rH3otIzrho4bPqfA8nD4GCpSUgh25JKoWDspAxoQ==",
+      "expectedIntegrity": "sha512-Yr8SHAv1KpAeaNOv8LJz5PcmD/zng4I8Eb8dT++0+VAqq0rH3otIzrho4bPqfA8nD4GCpSUgh25JKoWDspAxoQ==",
+      "integrityMatches": true,
+      "bytes": 11337
+    }
+  ],
+  "checks": [
+    {
+      "name": "source_revision",
+      "exitCode": 0,
+      "durationMs": 57
+    },
+    {
+      "name": "source_clean_before",
+      "exitCode": 0,
+      "durationMs": 70
+    },
+    {
+      "name": "source_tree",
+      "exitCode": 0,
+      "durationMs": 21
+    },
+    {
+      "name": "npm_pack_node_version",
+      "exitCode": 0,
+      "durationMs": 66
+    },
+    {
+      "name": "npm_pack_cli_version_under_node",
+      "exitCode": 0,
+      "durationMs": 324
+    },
+    {
+      "name": "extract_committed_source",
+      "exitCode": 0,
+      "durationMs": 88
+    },
+    {
+      "name": "install_build_dependencies",
+      "exitCode": 0,
+      "durationMs": 2756
+    },
+    {
+      "name": "compiler_version_under_bun",
+      "exitCode": 0,
+      "durationMs": 329
+    },
+    {
+      "name": "build_schemas",
+      "exitCode": 0,
+      "durationMs": 3183
+    },
+    {
+      "name": "copy_schema_assets",
+      "exitCode": 0,
+      "durationMs": 7
+    },
+    {
+      "name": "bun_pack_schemas",
+      "exitCode": 0,
+      "durationMs": 62
+    },
+    {
+      "name": "npm_pack_under_node_schemas",
+      "exitCode": 0,
+      "durationMs": 1456
+    },
+    {
+      "name": "build_core",
+      "exitCode": 0,
+      "durationMs": 15639
+    },
+    {
+      "name": "bun_pack_core",
+      "exitCode": 0,
+      "durationMs": 232
+    },
+    {
+      "name": "npm_pack_under_node_core",
+      "exitCode": 0,
+      "durationMs": 6072
+    },
+    {
+      "name": "build_driver-bun-sqlite",
+      "exitCode": 0,
+      "durationMs": 8830
+    },
+    {
+      "name": "bun_pack_driver-bun-sqlite",
+      "exitCode": 0,
+      "durationMs": 41
+    },
+    {
+      "name": "npm_pack_under_node_driver-bun-sqlite",
+      "exitCode": 0,
+      "durationMs": 3483
+    },
+    {
+      "name": "build_cli",
+      "exitCode": 0,
+      "durationMs": 9007
+    },
+    {
+      "name": "bun_pack_cli",
+      "exitCode": 0,
+      "durationMs": 85
+    },
+    {
+      "name": "npm_pack_under_node_cli",
+      "exitCode": 0,
+      "durationMs": 2916
+    },
+    {
+      "name": "build_mcp",
+      "exitCode": 0,
+      "durationMs": 8081
+    },
+    {
+      "name": "bun_pack_mcp",
+      "exitCode": 0,
+      "durationMs": 231
+    },
+    {
+      "name": "npm_pack_under_node_mcp",
+      "exitCode": 0,
+      "durationMs": 2622
+    },
+    {
+      "name": "install_packed_consumer",
+      "exitCode": 0,
+      "durationMs": 257
+    },
+    {
+      "name": "consumer_imports_and_sqlite_close_reopen",
+      "exitCode": 0,
+      "durationMs": 3176
+    },
+    {
+      "name": "packed_cli_version",
+      "exitCode": 0,
+      "durationMs": 2746
+    },
+    {
+      "name": "source_revision_after",
+      "exitCode": 0,
+      "durationMs": 144
+    },
+    {
+      "name": "source_clean_after",
+      "exitCode": 0,
+      "durationMs": 60
+    }
+  ],
+  "blockers": [],
+  "packagingDifferences": [
+    "@taric/schemas: bun_pm_pack SRI differs from the locked SRI",
+    "@taric/core: bun_pm_pack SRI differs from the locked SRI",
+    "@taric/driver-bun-sqlite: bun_pm_pack SRI differs from the locked SRI",
+    "@taric/cli: bun_pm_pack SRI differs from the locked SRI",
+    "@taric/mcp: bun_pm_pack SRI differs from the locked SRI"
+  ],
+  "limitations": [
+    "Local clean-consumer evidence only; this does not certify BreachWeave host integration, authorization, target execution, or production acceptance.",
+    "Packages are rebuilt from a clean committed source export. Bun pack is recorded separately; npm pack runs under Node to reproduce the locked SRIs, and only exact locked npm-packed SRI matches can satisfy artifact verification.",
+    "The isolated consumer overrides Taric transitive package references to the same-version locally packed artifacts; it does not use source links or imply registry publication.",
+    "SQLite close/reopen checks process lifecycle only and do not establish sudden power-loss durability, PostgreSQL, multi-host recovery, or registry publication.",
+    "Dependency installation may access the package registry; the smoke uses local fixture data and makes no target requests."
+  ]
+}

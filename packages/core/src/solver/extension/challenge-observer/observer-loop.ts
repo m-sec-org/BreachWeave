@@ -1,5 +1,5 @@
-import { buildSessionContext as defaultBuildSessionContext } from "@mariozechner/pi-coding-agent"
-import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent"
+import { buildSessionContext as defaultBuildSessionContext } from "@earendil-works/pi-coding-agent"
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent"
 import { CHALLENGE_ENV_CHALLENGE_ID } from "../../../challenge/env"
 import { requestHostBridge } from "../../../challenge/host-bridge-client"
 import { enqueueObserverReview, loadLatestObserverRoundNumber, loadRecentObserverRounds, persistObserverRound, takeNextObserverReview, updateObserverState } from "./observer-store"
@@ -18,6 +18,14 @@ const SESSION_BASELINE_PREVIEW_CHARS = 600
 const SESSION_NOTE_PREVIEW_CHARS = 240
 const SESSION_NOTE_LIMIT = 4
 const SESSION_DIRECTIVE_LIMIT = 6
+const SESSION_TASK_SECTION_HEADINGS = new Set([
+    "当前 Memory 摘要:",
+    "当前 Ideas 摘要:",
+    "当前 Submissions 摘要:",
+    "要求:",
+    "提示：",
+    "项目级别启动补充说明（最高优先级遵循）:",
+])
 
 type ObserverReviewRunner = typeof runSolverObserverReview
 type SessionContextBuilder = typeof defaultBuildSessionContext
@@ -40,6 +48,8 @@ export function buildObserverExtensionAppendPrompt(): string {
         "- observer 不直接替你解题，也不会替你验证漏洞；它负责整理策略看板和 durable memory，你负责实际验证与推进。",
         "- ideas 看板由 observer 异步维护。你把它当成只读策略板，用来避免重复试错和判断下一步。",
         "- observer 维护的 ideas 只是候选假设。不要把 idea 当结论，必须通过你的实测结果来确认、证伪或推进。",
+        "- 严格按初始任务的“本次测试项”执行，并遵循“项目级别启动补充说明（最高优先级遵循）”；验证其他清单项所必需的前置步骤也必须限于已分配资产。",
+        "- 遇到分配项以外的新方向，只记录已有证据、影响与待验证问题并上报，不自行扩散测试；由 observer 发布可复用发现，供 planner 和后继 solver 决定后续分配。",
         "- 如果 observer 新增或更新了某条 idea / memory，先理解其含义，再决定是否立即验证；不要机械照抄，也不要无视。",
         "- observer 的判断也是建议，不是替你下结论；如果它和你当前实测冲突，优先重新验证关键分歧点。",
     ].join("\n")
@@ -71,8 +81,8 @@ function buildReminderActivityFingerprint(payload: ObserverReviewPayload): strin
 
 async function isChallengeCompletedByHostBridge(): Promise<boolean> {
     try {
-        const result = await requestHostBridge<{ is_completed: boolean }>("challenge_is_completed", {})
-        return result.is_completed === true
+        const result = await requestHostBridge<{ is_completed: boolean; solver_task_completed?: boolean }>("challenge_is_completed", {})
+        return result.is_completed === true || result.solver_task_completed === true
     } catch {
         return false
     }
@@ -182,20 +192,49 @@ function extractStructuredLines(text: string, heading: string): string[] {
     return items
 }
 
+function extractAssignedTestChecklist(text: string): string {
+    const lines = text.split("\n")
+    const start = lines.findIndex((line) => line.trim() === "本次测试项:")
+    if (start < 0) return ""
+    const end = lines.findIndex((line, index) => index > start && SESSION_TASK_SECTION_HEADINGS.has(line.trim()))
+    return lines.slice(start + 1, end < 0 ? undefined : end).join("\n").trim()
+}
+
+function extractProjectStartupConstraints(text: string): string {
+    const heading = "项目级别启动补充说明（最高优先级遵循）:"
+    const lines = text.split("\n")
+    const start = lines.findIndex((line) => line.trim() === heading)
+    return start < 0 ? "" : lines.slice(start + 1).join("\n").trim()
+}
+
+function extractInitialUserText(entries: unknown[]): string {
+    for (const entry of entries) {
+        if (!entry || typeof entry !== "object") continue
+        const message = "message" in entry ? entry.message : entry
+        if (!message || typeof message !== "object" || !("role" in message) || message.role !== "user") continue
+        const text = extractMessageText("content" in message ? message.content : undefined)
+        if (text) return text
+    }
+    return ""
+}
+
 function buildBaselineSummary(text: string): string {
+    const checklist = extractAssignedTestChecklist(text)
+    const startupConstraints = extractProjectStartupConstraints(text)
     const directives = extractStructuredLines(text, "要求:")
         .map((line) => normalizeInlineText(line.replace(/^[-*]\s*/, "")))
         .filter((line) => line.length > 0)
         .slice(0, SESSION_DIRECTIVE_LIMIT)
 
-    if (directives.length > 0) {
-        return ["## Solver Directives", ...directives.map((line) => `- ${clipText(line, SESSION_NOTE_PREVIEW_CHARS)}`)].join("\n")
-    }
-
-    return ["## Solver Baseline", clipText(text, SESSION_BASELINE_PREVIEW_CHARS)].join("\n")
+    const parts: string[] = []
+    if (checklist) parts.push("## Assigned Test Checklist", "本次测试项:", checklist)
+    if (startupConstraints) parts.push("## Project Startup Constraints", "项目级别启动补充说明（最高优先级遵循）:", startupConstraints)
+    if (directives.length > 0) parts.push("## Solver Directives", ...directives.map((line) => `- ${clipText(line, SESSION_NOTE_PREVIEW_CHARS)}`))
+    if (parts.length === 0) parts.push("## Solver Baseline", clipText(text, SESSION_BASELINE_PREVIEW_CHARS))
+    return parts.join("\n")
 }
 
-function buildCompactSessionContext(messages: SessionContextMessageLike[]): string {
+function buildCompactSessionContext(messages: SessionContextMessageLike[], initialUserText: string): string {
     const entries = messages
         .map((message) => ({
             role: message.role,
@@ -203,9 +242,7 @@ function buildCompactSessionContext(messages: SessionContextMessageLike[]): stri
         }))
         .filter((item) => (item.role === "user" || item.role === "assistant") && item.text.length > 0)
 
-    if (entries.length === 0) return ""
-
-    const baseline = entries.find((item) => item.role === "user")?.text ?? ""
+    const baseline = initialUserText || entries.find((item) => item.role === "user")?.text || ""
     const recentUserNotes = entries
         .filter((item) => item.role === "user" && item.text !== baseline)
         .slice(-SESSION_NOTE_LIMIT)
@@ -235,7 +272,7 @@ function buildObserverPayload(
     return {
         reason,
         rounds,
-        session_context: buildCompactSessionContext(sessionContext.messages),
+        session_context: buildCompactSessionContext(sessionContext.messages, extractInitialUserText(entries)),
         branch_entry_count: entries.length,
         message_count: sessionContext.messages.length,
     }
@@ -247,7 +284,7 @@ export function attachObserverLoop(pi: ExtensionAPI, options: ObserverLoopOption
     const challengeIdText = challengeId
     const runReview = options.runReview ?? runSolverObserverReview
     const buildSessionContext = options.buildSessionContext ?? defaultBuildSessionContext
-    let reviewRunning = false
+    let reviewDrain = Promise.resolve()
 
     const roundStateReady = updateObserverState((state) => ({
         nextState: {
@@ -267,39 +304,41 @@ export function attachObserverLoop(pi: ExtensionAPI, options: ObserverLoopOption
     })
 
     async function drainReviewQueue(): Promise<void> {
-        if (reviewRunning) return
-        reviewRunning = true
-
-        try {
-            while (true) {
-                const next = await takeNextObserverReview()
-                if (!next) return
-                try {
-                    await runReview(challengeIdText, next, {
-                        observerModel: options.observerModel,
-                        sendCorrectionNotice: async (message) => {
-                            if (!(await shouldSendEfficiencyReminder(next, message))) {
-                                return false
-                            }
-                            pi.sendUserMessage(`纠偏提醒：${message.trim()}`, { deliverAs: "steer" })
-                            return true
-                        },
-                    })
-                } catch (error) {
-                    console.error(`[observer] review failed: ${error instanceof Error ? error.message : String(error)}`)
-                }
+        while (true) {
+            const next = await takeNextObserverReview()
+            if (!next) return
+            try {
+                await runReview(challengeIdText, next, {
+                    observerModel: options.observerModel,
+                    sendCorrectionNotice: async (message) => {
+                        if (!(await shouldSendEfficiencyReminder(next, message))) {
+                            return false
+                        }
+                        pi.sendUserMessage(`纠偏提醒：${message.trim()}`, { deliverAs: "steer" })
+                        return true
+                    },
+                })
+            } catch (error) {
+                console.error(`[observer] review failed: ${error instanceof Error ? error.message : String(error)}`)
             }
-        } finally {
-            reviewRunning = false
         }
     }
 
-    function enqueueReview(payload: ObserverReviewPayload): void {
-        void enqueueObserverReview(payload)
-            .then(() => drainReviewQueue())
-            .catch((error) => {
-                console.error(`[observer] enqueue failed: ${error instanceof Error ? error.message : String(error)}`)
+    function enqueueReview(payload: ObserverReviewPayload): Promise<void> {
+        // Persist immediately, then serialize drains so agent_end can await
+        // both an active periodic review and its own final review.
+        const enqueued = enqueueObserverReview(payload).catch((error) => {
+            console.error(`[observer] enqueue failed: ${error instanceof Error ? error.message : String(error)}`)
+        })
+        reviewDrain = reviewDrain
+            .then(async () => {
+                await enqueued
+                await drainReviewQueue()
             })
+            .catch((error) => {
+                console.error(`[observer] drain failed: ${error instanceof Error ? error.message : String(error)}`)
+            })
+        return reviewDrain
     }
 
     pi.on("tool_execution_start", async (event) => {
@@ -374,15 +413,20 @@ export function attachObserverLoop(pi: ExtensionAPI, options: ObserverLoopOption
         const reviewRounds = recentRounds.slice(-OBSERVER_REVIEW_WINDOW_ROUNDS)
         if (reviewRounds.length === 0) return
         if (!reviewRounds.some((item) => item.tool_logs.length > 0 || item.assistant_summary.trim().length > 0)) return
-        enqueueReview(buildObserverPayload(ctx, reviewReason, reviewRounds, buildSessionContext))
+        void enqueueReview(buildObserverPayload(ctx, reviewReason, reviewRounds, buildSessionContext))
     })
 
     pi.on("agent_end", async (_event, ctx) => {
         await roundStateReady
         const reviewRounds = await loadRecentObserverRounds(OBSERVER_REVIEW_WINDOW_ROUNDS)
-        if (reviewRounds.length === 0) return
-        enqueueReview(buildObserverPayload(ctx, "agent_end", reviewRounds, buildSessionContext))
+        if (reviewRounds.length === 0) {
+            await reviewDrain
+            return
+        }
+        await enqueueReview(buildObserverPayload(ctx, "agent_end", reviewRounds, buildSessionContext))
     })
 
-    void drainReviewQueue()
+    reviewDrain = drainReviewQueue().catch((error) => {
+        console.error(`[observer] drain failed: ${error instanceof Error ? error.message : String(error)}`)
+    })
 }

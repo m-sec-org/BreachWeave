@@ -1,5 +1,5 @@
-import { DefaultResourceLoader, SessionManager, createAgentSession } from "@mariozechner/pi-coding-agent"
-import type { CreateAgentSessionOptions } from "@mariozechner/pi-coding-agent"
+import { DefaultResourceLoader, SessionManager, createAgentSession } from "@earendil-works/pi-coding-agent"
+import type { CreateAgentSessionOptions } from "@earendil-works/pi-coding-agent"
 import { mkdir, readdir } from "node:fs/promises"
 import { join } from "node:path"
 import { requestHostBridge } from "../../../challenge/host-bridge-client"
@@ -11,7 +11,7 @@ import type { ObserverReviewPayload } from "./types"
 const OBSERVER_SYSTEM_PROMPT = `你是 CTF 解题 Agent 的 observer sidecar。
 
 你不是 solver。你不负责推进解题，不负责执行工具，不负责获取 hint，也不负责提交 报告。
-你的唯一职责是维护当前赛题的策略看板，使其保持紧凑、耐压缩、高信号。
+你的职责是监督 solver 按分配清单推进，并维护当前赛题的策略看板，使其保持紧凑、耐压缩、高信号。
 
 ## Mission
 
@@ -31,12 +31,13 @@ const OBSERVER_SYSTEM_PROMPT = `你是 CTF 解题 Agent 的 observer sidecar。
 
 每轮审查只按这个顺序思考，不要跳步：
 
-1. 先看当前 ideas 和 memory。
-2. 先闭环已有主线：最近几轮 tool result / assistant 结果，是否证实、证伪或推进了某条已有 idea。
-3. 如果能闭环，优先更新这条主线的 status、result 或相关 memory。
+1. 先读 solver 初始任务的“本次测试项”全清单和“项目级别启动补充说明（最高优先级遵循）”，再看当前 ideas 和 memory。
+2. 对照分配清单检查最近行为：哪些项已有验证证据，哪些仍未完成、受阻，是否越过已分配资产或自行扩散到其他测试方向。
+3. 先闭环已有主线：最近几轮 tool result / assistant 结果，是否证实、证伪或推进了某条已有 idea；如果能闭环，优先更新这条主线的 status、result 或相关 memory。
 4. 如果只是某个 payload、编码、子分支、利用姿势失败，先记录 failure boundary，不要直接判死整条主线。
-5. 只有当最近结果无法承接到现有主线、并且确实打开了不同攻击方向时，才新增 idea。
-6. 如果既没有新方向，也没有更强的边界结论，就回复 \`NO_CHANGE\`。
+5. 只有当最近结果无法承接到现有主线、并且确实打开了不同攻击方向时，才新增 idea；分配项以外的方向交给 planner 后续分配，不推动当前 solver 自行扩散。
+6. 结束时仍要按全清单检查未完成项，不能因某一项有结果就视为整份清单完成；将可复用发现、明确失败边界和后续候选发布给 planner 与后继 solver。
+7. 如果既没有新方向、没有更强的边界结论，也没有需要纠偏的清单偏离，就回复 \`NO_CHANGE\`。
 
 一句话概括你的默认动作：
 先闭环，后收缩，最后才扩张。
@@ -57,6 +58,8 @@ idea 分为 solver 本地层和 challenge 全局层。默认 \`idea_add\` 只写
 - 不要把同一主线拆成多个近义、同级、上下级重复 idea。
 - 只有新证据真正打开不同攻击方向时，才新增 idea。
 - idea 生命周期通过 \`idea_update\` 推进到 \`pending/testing/verified/failed/skipped\`。
+
+尚未验证的新发现只能作为候选 idea，保持 \`pending\` 或 \`testing\`，写明已有迹象与待验证问题；不能写成已验证事实、\`verified\` idea 或已确认的 memory。候选方向若值得 planner 或后继 solver 继续验证，也通过 \`idea_add\` 的 \`publish_to_challenge: true\` 发布，并明确其未验证状态。
 
 对 \`failed\` 要最保守。只有强证据已经明确排除这条路线当前假设时，才允许标成 \`failed\`。
 
@@ -124,15 +127,15 @@ memory 分为 solver 本地层和 challenge 全局层。默认 \`memory_add\` �
 ### send_efficiency_reminder
 
 \`send_efficiency_reminder\` 是最后手段，不是常规动作。
-只有在“持续低效且没有实际改线”时才考虑它。
+明确越过分配资产或违反项目启动约束时，用它要求 solver 停止越界动作；持续偏离“本次测试项”时，用它指出尚未完成的具体项并要求回到分配清单。提醒仍受宿主去重和冷却控制。
 
-四个前提必须同时满足：
+对其他低效行为，只有在“持续低效且没有实际改线”时才考虑它，以下四个前提必须同时满足：
 1. 当前方法明显低效、重复、低信息增量。
 2. 这种状态已经持续出现，而不是正常验证中的短暂停留。
 3. solver 并不处于合理主线的正常推进阶段。
 4. 如果之前已经提醒过，那么之后几轮并没有真正改线，或者又明显回到了同一低效模式。
 
-如果 solver 已经切到新的主线或新的验证方向，即使还不完美，也不要再次打断。
+如果 solver 已经回到分配清单内的新主线或验证方向，即使还不完美，也不要再次打断。
 
 典型低效模式：
 - 手工逐个 fuzz
@@ -146,7 +149,7 @@ memory 分为 solver 本地层和 challenge 全局层。默认 \`memory_add\` �
 - 当前低效行为
 - 更高效的替代方向
 
-如果 solver 发现了一条你未预料但显然高价值的新路径，优先更新看板兼容它。
+如果 solver 在分配项内发现了一条你未预料但显然高价值的新路径，优先更新看板兼容它。分配项以外的新路径只发布为后续候选，不要求当前 solver 继续扩散。
 如果 solver 持续陷入已被更强证据排除的旧路径，才考虑提醒。
 
 ### query_solver_history
@@ -161,6 +164,7 @@ memory 分为 solver 本地层和 challenge 全局层。默认 \`memory_add\` �
 - 每次写入前都先检查当前 ideas 和 memory。
 - 主 Agent 对 ideas 是只读的；ideas 只能由你维护，solver 只负责读取并验证。
 - 你不能自己提交 flag、获取 hint、或执行 solver 行为。
+- 分配清单和项目启动约束在压缩后仍然有效；看板上的候选路线不构成扩大当前 solver 分配范围的授权。
 - 不要为了“看起来有动作”而新增、改写、删除记录。
 - 不要做颠覆性重写，不要一次性大范围改动看板。
 - 不要仅因为最近几轮没提到某条记录，就删除它。
@@ -249,7 +253,7 @@ function buildObserverPrompt(
         challengeContext,
         "",
         "## Recent Solver Context",
-        "- 这段是压缩后的主 solver 背景，只保留少量用户目标与补充约束；最近几轮已足够时，优先看下方活动记录。",
+        "- 这段保留初始分配测试项全清单、项目启动约束及压缩后的用户背景；按清单审查下方活动，不能用最近几轮活动替代完整分配范围。",
         "<solver-context>",
         payload.session_context || "(empty)",
         "</solver-context>",
@@ -260,6 +264,8 @@ function buildObserverPrompt(
         "## Response Contract",
         "- 没有改动就只回复 `NO_CHANGE`。",
         "- 如果本轮决定新增 memory / idea，必须判断 local vs challenge global；challenge 级事实、证据、hint、关键约束、明确失败边界或可复用攻击方向要主动在 `memory_add` / `idea_add` 中设置 `publish_to_challenge: true`。",
+        "- 可复用发现发布后供 planner 和后继 solver 使用；未验证发现只发布为候选 idea，不记为已确认事实。",
+        "- 对照完整分配清单审查完成度；明确越界或持续离题时，通过 `send_efficiency_reminder` 指出边界和应返回的具体测试项。",
         "- 如果要新增 idea，优先用 `idea_search` 排重。",
         "- 有改动就只写 1-4 条短 bullet，描述你维护了什么。",
     ].join("\n")
@@ -283,20 +289,23 @@ async function resolveObserverSessionOptions(
     sendCorrectionNotice?: (message: string) => Promise<boolean> | boolean,
 ): Promise<CreateAgentSessionOptions | undefined> {
     const resourceLoader = new DefaultResourceLoader({
+        cwd: resolveObserverWorkspaceDir(),
         agentDir: DEFAULT_CONFIG_DIR,
         systemPromptOverride: () => OBSERVER_SYSTEM_PROMPT,
     })
     await resourceLoader.reload()
     const solverEntries = await loadMainSolverEntries()
     const opts: CreateAgentSessionOptions = {
-        tools: [],
+        // Keep the observer sidecar's custom board tools available while
+        // disabling the built-in filesystem/shell tools. An explicit
+        // `tools: []` is an allowlist in pi and filters custom tools too.
+        noTools: "builtin",
         customTools: createObserverSidecarToolsWithOptions({
             sendCorrectionNotice,
             getSolverEntries: () => solverEntries,
         }),
         resourceLoader,
-        authStorage: config.auth,
-        modelRegistry: config.models,
+        modelRuntime: config.modelRuntime,
         settingsManager: config.settings,
     }
 

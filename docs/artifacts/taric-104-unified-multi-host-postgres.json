@@ -1,0 +1,39 @@
+{
+  "version": "taric-multi-host-container-verification/1",
+  "generated_at": "2026-11-03T01:59:14.655Z",
+  "implementation_digest": "sha256:9442b5271e27212b87aee9208f14bdc58e5185d3a9ad4d4eb639a5e3385151e1",
+  "postgres_major_version": 17,
+  "topology": {
+    "independent_host_containers": 2,
+    "independent_node_processes": 2,
+    "distinct_host_ids": true,
+    "shared_postgresql_authority": true,
+    "separate_content_roots": true,
+    "physical_machines": 1,
+    "docker_network": "taric-authority_default"
+  },
+  "checks": [
+    {
+      "id": "concurrent_claim_single_owner",
+      "passed": true,
+      "loser_code": "conflict"
+    },
+    {
+      "id": "crashed_owner_reclaimed_after_expiry",
+      "passed": true,
+      "generation": 2
+    },
+    {
+      "id": "restarted_old_generation_fenced",
+      "passed": true,
+      "error_code": "stale_version"
+    },
+    {
+      "id": "current_generation_renewed",
+      "passed": true
+    }
+  ],
+  "limitations": [
+    "The two host containers ran on one OrbStack workstation and shared the Compose bridge network with PostgreSQL; this does not test separate physical machines or network partition/reconnect."
+  ]
+}

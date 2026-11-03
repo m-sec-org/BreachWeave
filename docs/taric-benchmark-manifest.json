@@ -1,0 +1,13 @@
+{
+  "format": "breachweave-taric-benchmark/1",
+  "targetRevision": "record-before-run",
+  "challengeRevision": "record-before-run",
+  "model": "record-before-run",
+  "promptDigest": "sha256:record-before-run",
+  "toolImage": "record-before-run",
+  "timeBudgetSeconds": 1800,
+  "tokenBudget": 200000,
+  "concurrency": 1,
+  "status": "not-run",
+  "reason": "No paired legacy_local/Taric trials are checked into the repository. This manifest is a control template, not outcome evidence."
+}

@@ -3,8 +3,8 @@ import type {
     ToolCall,
     ToolResultMessage as ToolResultMessageType,
     UserMessage as UserMessageType,
-} from "@mariozechner/pi-ai"
-import type { AgentTool } from "@mariozechner/pi-agent-core"
+} from "@earendil-works/pi-ai"
+import type { AgentTool } from "@earendil-works/pi-agent-core"
 import { icon } from "@mariozechner/mini-lit"
 import "@mariozechner/mini-lit/dist/MarkdownBlock.js"
 import "@mariozechner/mini-lit/dist/CodeBlock.js"

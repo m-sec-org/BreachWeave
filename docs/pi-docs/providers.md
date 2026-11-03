@@ -71,7 +71,7 @@ pi
 | MiniMax | `MINIMAX_API_KEY` | `minimax` |
 | MiniMax (China) | `MINIMAX_CN_API_KEY` | `minimax-cn` |
 
-Reference for environment variables and `auth.json` keys: [`const envMap`](https://github.com/badlogic/pi-mono/blob/main/packages/ai/src/env-api-keys.ts) in [`packages/ai/src/env-api-keys.ts`](https://github.com/badlogic/pi-mono/blob/main/packages/ai/src/env-api-keys.ts).
+Reference for environment variables and `auth.json` keys: [`const envMap`](https://github.com/earendil-works/pi/blob/main/packages/ai/src/env-api-keys.ts) in [`packages/ai/src/env-api-keys.ts`](https://github.com/earendil-works/pi/blob/main/packages/ai/src/env-api-keys.ts).
 
 #### Auth File
 

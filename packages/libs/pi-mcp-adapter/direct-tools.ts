@@ -1,4 +1,4 @@
-import type { ToolDefinition } from "@mariozechner/pi-coding-agent";
+import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { McpExtensionState } from "./state.js";
 import type { DirectToolSpec, McpConfig, McpContent } from "./types.js";
 import type { MetadataCache } from "./metadata-cache.js";

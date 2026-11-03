@@ -112,5 +112,5 @@ PromptFile (YAML+MD)
     → 解析 tools → resolveTools() → ToolDefinition[]
     → 解析 skills → skillsOverride filter
     → DefaultResourceLoader(systemPrompt, promptsOverride, skillsOverride)
-    → CreateAgentSessionOptions { model, thinkingLevel, customTools, resourceLoader, authStorage, modelRegistry }
+    → CreateAgentSessionOptions { model, thinkingLevel, customTools, resourceLoader, modelRuntime }
 ```

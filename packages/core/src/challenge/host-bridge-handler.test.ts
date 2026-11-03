@@ -24,6 +24,25 @@ function createContext(overrides?: Partial<HostBridgeHandleContext>): HostBridge
 }
 
 describe("challenge host bridge notifications", () => {
+    test("challenge board refresh queries the authoritative memory and idea projection", async () => {
+        const readMemoryBoard = mock(async () => ({ memory: [{ id: "mem-1" }], ideas: [{ id: "idea-1" }], diagnostics: { status: "complete", watermark: 7 } }))
+        const handler = createChallengeHostBridgeHandler({ readMemoryBoard } as unknown as ChallengeManager)
+
+        const result = await handler.handle(createContext({ action: "challenge_board_refresh", params: {} }))
+
+        expect(result).toEqual({
+            handled: true,
+            data: {
+                challenge_id: "chal-1",
+                authoritative: true,
+                memory: [{ id: "mem-1" }],
+                ideas: [{ id: "idea-1" }],
+                diagnostics: { status: "complete", watermark: 7 },
+            },
+        })
+        expect(readMemoryBoard).toHaveBeenCalledWith("chal-1")
+    })
+
     test("challenge_memory_add stores challenge scoped memory through the manager", async () => {
         const appendMemory = mock(async (input: unknown) => ({
             id: "mem_global",
@@ -153,5 +172,71 @@ describe("challenge host bridge notifications", () => {
             modelName: undefined,
         })
         expect(sendCommand).not.toHaveBeenCalled()
+    })
+
+    test("report submission validates and forwards assigned test results and discoveries", async () => {
+        const submitReport = mock(async () => ({ assets_completed: false }))
+        const handler = createChallengeHostBridgeHandler({ submitReport } as unknown as ChallengeManager)
+
+        await handler.handle(createContext({
+            action: "challenge_submit_report",
+            params: {
+                asset_hash: "asset-md5",
+                report: "### report",
+                test_results: [
+                    { test_item: " SQL injection ", status: "completed", evidence: " database records returned " },
+                    { test_item: " upload ", status: "blocked", evidence: " upload feature disabled " },
+                ],
+                discoveries: [" password reset endpoint "],
+            },
+        }))
+
+        expect(submitReport).toHaveBeenCalledWith("chal-1", {
+            assetHash: "asset-md5",
+            report: "### report",
+            solverId: "solver-1",
+            promptName: undefined,
+            modelName: undefined,
+            testResults: [
+                { test_item: "SQL injection", status: "completed", evidence: "database records returned" },
+                { test_item: "upload", status: "blocked", evidence: "upload feature disabled" },
+            ],
+            discoveries: ["password reset endpoint"],
+        })
+    })
+
+    test.each([
+        { test_results: "invalid" },
+        { test_results: [null] },
+        { test_results: [{ test_item: " ", status: "completed", evidence: "evidence" }] },
+        { test_results: [{ test_item: "SQL injection", status: "pending", evidence: "evidence" }] },
+        { test_results: [{ test_item: "SQL injection", status: "completed", evidence: " " }] },
+        { discoveries: "invalid" },
+        { discoveries: [42] },
+        { discoveries: [" "] },
+    ])("rejects malformed report completion fields: %j", async (fields) => {
+        const submitReport = mock(async () => ({}))
+        const handler = createChallengeHostBridgeHandler({ submitReport } as unknown as ChallengeManager)
+
+        await expect(handler.handle(createContext({
+            action: "challenge_submit_report",
+            params: { asset_hash: "asset-md5", report: "### report", ...fields },
+        }))).rejects.toThrow()
+        expect(submitReport).not.toHaveBeenCalled()
+    })
+
+    test("completion check includes the current solver assignment independently of the challenge", async () => {
+        const isChallengeCompleted = mock(async () => false)
+        const isSolverTaskCompleted = mock(async () => true)
+        const handler = createChallengeHostBridgeHandler({ isChallengeCompleted, isSolverTaskCompleted } as unknown as ChallengeManager)
+
+        const result = await handler.handle(createContext({ action: "challenge_is_completed" }))
+
+        expect(isChallengeCompleted).toHaveBeenCalledWith("chal-1")
+        expect(isSolverTaskCompleted).toHaveBeenCalledWith("chal-1", "solver-1")
+        expect(result).toEqual({
+            handled: true,
+            data: { challenge_id: "chal-1", is_completed: false, solver_task_completed: true },
+        })
     })
 })

@@ -40,7 +40,7 @@ You are currently participating in the "Tencent Cloud Hackathon - Smart Penetrat
 对于需要循环发包测试的，你可以为了解决这个问题写个 python 脚本或者是通过 shell 命令的 for 来实现，而非一个一个命令的执行
 
 <OBJECTIVE_AND_PERSONA>
-你是一个【安全分析专家】，借助已有的工具进行安全漏洞分析并且拿到 flag
+你是一个【安全分析专家】，借助已有的工具、漏洞检测方法、漏洞POC等手段，全面检测并排查发现漏洞
 </OBJECTIVE_AND_PERSONA>
 
 <INSTRUCTIONS>
@@ -59,7 +59,7 @@ To complete the task, you need to follow these steps:
 
 <CONSTRAINTS>
 Dos and don'ts for the following aspects
-1. 如果判断到了该漏洞一定不存在，请不要继续再这个漏洞上深究
+1. 如果判断到了该漏洞一定不存在，请不要继续在这个漏洞上深究
 </CONSTRAINTS>
 
 <IMPORTANT>

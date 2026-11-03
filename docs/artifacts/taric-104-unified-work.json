@@ -1,0 +1,195 @@
+{
+  "reportVersion": "breachweave-taric-work-fixture/1",
+  "generatedAt": "2026-11-03T01:58:09.782Z",
+  "evidenceClass": "local_dist_fixture",
+  "sourceCommit": "1c466f4d8ad8f775f98bf867453b81230469287a",
+  "sourceCommitMeaning": "expected_checkout_ref_only",
+  "runtimeSourceProvenance": "unverified",
+  "authority": "single_host_sqlite",
+  "restartMethod": "clean_authority_close_reopen_with_fresh_service_instance",
+  "operationRegistrySourceDigest": "sha256:866a96b8fdb650c56c6edae59840b854930f4392f49edd5941ad67c6425b8603",
+  "assertions": [
+    {
+      "id": "resource_proposal_admission_retries_keep_the_same_canonical_id",
+      "passed": true
+    },
+    {
+      "id": "resource_mapping_resolves_without_local_identity_ledger",
+      "passed": true
+    },
+    {
+      "id": "pending_proposal_not_claimable",
+      "passed": true
+    },
+    {
+      "id": "stable_proposal_and_admission_identity",
+      "passed": true
+    },
+    {
+      "id": "board_builds_same_watermark_context_work_resource_snapshot",
+      "passed": true
+    },
+    {
+      "id": "board_projection_metadata_only_and_contract_gate_preserved",
+      "passed": true
+    },
+    {
+      "id": "lost_notification_rebuilt_before_scheduling",
+      "passed": true
+    },
+    {
+      "id": "duplicate_notifications_requery_without_duplicate_work",
+      "passed": true
+    },
+    {
+      "id": "stale_connection_blocks_scheduling_after_complete_reads",
+      "passed": true
+    },
+    {
+      "id": "explicit_reconnect_rebuilds_complete_snapshot",
+      "passed": true
+    },
+    {
+      "id": "truncated_board_snapshot_never_published",
+      "passed": true
+    },
+    {
+      "id": "native_invalid_cursor_blocks_board",
+      "passed": true
+    },
+    {
+      "id": "same_engagement_project_manifest_filters_foreign_ids_on_all_surfaces",
+      "passed": true
+    },
+    {
+      "id": "trusted_manifest_cannot_bind_foreign_work_to_project_resource",
+      "passed": true
+    },
+    {
+      "id": "scheduler_default_requires_trusted_host_authorization_before_reservation",
+      "passed": true
+    },
+    {
+      "id": "scheduler_same_exclusive_target_has_one_host_and_authority_owner",
+      "passed": true
+    },
+    {
+      "id": "scheduler_expired_authority_lease_does_not_free_host_slot",
+      "passed": true
+    },
+    {
+      "id": "scheduler_host_stop_releases_slots_while_authority_reclaim_creates_generation",
+      "passed": true
+    },
+    {
+      "id": "successful_native_claim_with_null_reply_keeps_indeterminate_host_reservation",
+      "passed": true
+    },
+    {
+      "id": "canonical_workitem_query_pinned",
+      "passed": true
+    },
+    {
+      "id": "forged_resource_revision_cannot_claim",
+      "passed": true
+    },
+    {
+      "id": "four_concurrent_claims_one_authority_owner",
+      "passed": true
+    },
+    {
+      "id": "actual_context_snapshot_is_opaque",
+      "passed": true
+    },
+    {
+      "id": "authority_checkpoint_stores_complete_recovery_locator",
+      "passed": true
+    },
+    {
+      "id": "checkpoint_then_renew_keeps_same_generation",
+      "passed": true
+    },
+    {
+      "id": "shortened_active_lease_resumes_historical_longer_checkpoint",
+      "passed": true
+    },
+    {
+      "id": "board_rebuilt_after_sql_restart_without_projection_files",
+      "passed": true
+    },
+    {
+      "id": "restart_without_local_run_map_or_checkpoint_recovers",
+      "passed": true
+    },
+    {
+      "id": "renewed_run_recovers_older_checkpoint_after_restart",
+      "passed": true
+    },
+    {
+      "id": "expired_lease_rejects_renewal",
+      "passed": true
+    },
+    {
+      "id": "lease_reclaim_new_generation_and_attempt",
+      "passed": true
+    },
+    {
+      "id": "old_generation_checkpoint_rejected_by_authority",
+      "passed": true
+    },
+    {
+      "id": "old_generation_transition_rejected_by_authority",
+      "passed": true
+    },
+    {
+      "id": "old_generation_capture_quarantined_by_authority",
+      "passed": true
+    },
+    {
+      "id": "late_capture_cannot_change_canonical_observation_evidence_or_coverage",
+      "passed": true
+    },
+    {
+      "id": "old_checkpoint_never_resumes_reclaimed_generation",
+      "passed": true
+    }
+  ],
+  "metrics": {
+    "passed": 36,
+    "total": 36
+  },
+  "board": {
+    "surfaces": [
+      "model_context_L2_only",
+      "host_workitem_L1_L2",
+      "host_resource_L1_L2",
+      "host_resource_revision_L1_L2"
+    ],
+    "recordVersionsPinnedToSameWatermark": true,
+    "notificationsAreHintsOnly": true,
+    "localProjectionFilesRead": false,
+    "genericRecordVisibility": "current_recall_filtered",
+    "completeEngagementReconstructionClaimed": false,
+    "coverageGateInferredFromBoard": false,
+    "launchAuthorizationGrantedByBoard": false
+  },
+  "scheduler": {
+    "authorization": "trusted_isolated_fixture_callback_only",
+    "productionDefaultGate": "trusted_host_authorization_required",
+    "sharedHostWorkerPoolIndependentOfLeases": true,
+    "targetTrafficGenerated": false
+  },
+  "userConfigurationRead": false,
+  "targetTrafficGenerated": false,
+  "productionEvidence": false,
+  "temporaryStateRemoved": true,
+  "limitations": [
+    "The selected upstream dist artifacts are local fixtures; source-to-dist and dependency closure provenance are not certified.",
+    "Resource and observation fixture foundations are canonical AuthorityStore records; this smoke does not certify project manifest bootstrap.",
+    "WorkItem records are snapshot-pinned; active_run discovery is a live join, followed by authoritative work.resume validation.",
+    "The fixture requires an initialized Engagement and an operator-approved immutable ScopeRevision bound to a committed ROE Artifact.",
+    "Core context.query emits ctx_<hex>, but checkpoint ContextManifest requires UUID; the checkpoint uses an explicitly host-built UUID snapshot and the actual queried read_seq, not a fabricated canonical Core Context ID.",
+    "Expired runs cannot be rediscovered through Work's active_run join alone; reclaim requires the already persisted WorkRun identifier.",
+    "Only clean authority restart is covered here; SIGKILL and power-loss durability are not claimed."
+  ]
+}

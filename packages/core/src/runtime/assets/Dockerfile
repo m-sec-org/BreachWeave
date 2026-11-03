@@ -78,6 +78,19 @@ RUN set -eux; \
         enum4linux; \
     rm -rf /var/lib/apt/lists/*
 
+# Kali rolling 的 Python 3.14 部分包（unicorn/pwntools 等）无预编译 wheel，需要源码构建工具链
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+        build-essential \
+        cmake \
+        pkg-config \
+        python3-dev \
+        zlib1g-dev \
+        libxml2-dev \
+        libxslt1-dev; \
+    rm -rf /var/lib/apt/lists/*
+
 RUN python -m pip install --break-system-packages --ignore-installed --no-cache-dir \
         "cryptography>=36.0.1" \
         httpx \

@@ -1,0 +1,51 @@
+{
+  "format": "breachweave-authorized-solver-egress-smoke/1",
+  "generatedAt": "2026-11-03T01:43:05.743Z",
+  "dockerContext": "orbstack",
+  "image": "tch-agent:latest",
+  "networkMode": "none",
+  "status": "passed",
+  "checks": [
+    {
+      "id": "raw_tcp_host",
+      "blocked": true
+    },
+    {
+      "id": "raw_tcp_public",
+      "blocked": true
+    },
+    {
+      "id": "curl_host",
+      "blocked": true
+    },
+    {
+      "id": "curl_public",
+      "blocked": true
+    }
+  ],
+  "modelTransport": {
+    "passed": true,
+    "exitCode": 0,
+    "bridgeActions": [
+      "authorized_model_fetch",
+      "authorized_model_read",
+      "authorized_model_read",
+      "authorized_model_read",
+      "authorized_model_cancel"
+    ],
+    "requests": 1,
+    "hostCredentialInjected": true
+  },
+  "metrics": {
+    "passed": 5,
+    "total": 5
+  },
+  "fixtureRequests": 0,
+  "targetTrafficGenerated": false,
+  "productionEvidence": false,
+  "output": {
+    "stdout": "[{\"id\": \"raw_tcp_host\", \"blocked\": true}, {\"id\": \"raw_tcp_public\", \"blocked\": true}, {\"id\": \"curl_host\", \"blocked\": true}, {\"id\": \"curl_public\", \"blocked\": true}]",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

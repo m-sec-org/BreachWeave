@@ -1,4 +1,4 @@
-import type { ToolResultMessage } from "@mariozechner/pi-ai"
+import type { ToolResultMessage } from "@earendil-works/pi-ai"
 import { html } from "lit"
 import { SquareTerminal } from "lucide"
 import { renderHeader } from "../renderer-registry"
@@ -8,8 +8,8 @@ interface BashParams {
     command: string
 }
 
-export class BashRenderer implements ToolRenderer<BashParams, undefined> {
-    render(params: BashParams | undefined, result: ToolResultMessage<undefined> | undefined): ToolRenderResult {
+export class BashRenderer implements ToolRenderer<BashParams> {
+    render(params: BashParams | undefined, result: ToolResultMessage | undefined): ToolRenderResult {
         const state = result ? (result.isError ? "error" : "complete") : "inprogress"
 
         if (result && params?.command) {

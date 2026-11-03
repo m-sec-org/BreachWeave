@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, mock, test } from "bun:test"
-import type { ExtensionContext } from "@mariozechner/pi-coding-agent"
+import type { ExtensionToolContext } from "@earendil-works/pi-coding-agent"
 import type { ConfiguredModel, ProviderPrefEntry } from "../providers/types"
 
 const reloadAuth = mock(() => {})
@@ -93,14 +93,14 @@ test("reloads auth storage before resolving kimi api key", async () => {
         {
             cwd: process.cwd(),
             model: { provider: "provider:65d9d2f9", id: "kimi-k2.5" },
-        } as unknown as ExtensionContext,
+        } as unknown as ExtensionToolContext,
     )
 
     expect(reloadAuth).toHaveBeenCalled()
     expect(refreshModels).toHaveBeenCalled()
     expect(getApiKeyValue).toHaveBeenCalledWith("provider:65d9d2f9")
     expect(fetchMock).toHaveBeenCalled()
-    expect(result.content).toEqual([{ type: "text", text: "# kimi result\nsearch ok" }])
+    expect(result.content).toEqual([{ type: "text", text: "# Kimi Result (REFERENCE)\nsearch ok" }])
 })
 
 test("uses kimi provider that actually has an api key", async () => {
@@ -160,7 +160,7 @@ test("uses kimi provider that actually has an api key", async () => {
         {
             cwd: process.cwd(),
             model: { provider: "provider:65d9d2f9", id: "kimi-k2.5" },
-        } as unknown as ExtensionContext,
+        } as unknown as ExtensionToolContext,
     )
 
     expect(getApiKeyValue).toHaveBeenCalledWith("provider:65d9d2f9")
@@ -226,7 +226,7 @@ test("falls back to provider apiKey embedded in configured provider entry", asyn
         {
             cwd: process.cwd(),
             model: { provider: "provider:81b0a0b9", id: "kimi-k2.5" },
-        } as unknown as ExtensionContext,
+        } as unknown as ExtensionToolContext,
     )
 
     expect(getProvider).toHaveBeenCalledWith("provider:81b0a0b9")

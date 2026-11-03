@@ -1,5 +1,5 @@
-import { isToolCallEventType } from "@mariozechner/pi-coding-agent"
-import type { ExtensionFactory } from "@mariozechner/pi-coding-agent"
+import { isToolCallEventType } from "@earendil-works/pi-coding-agent"
+import type { ExtensionFactory } from "@earendil-works/pi-coding-agent"
 
 function resolveRtkAvailability(): { available: boolean; stdout: string; stderr: string; exitCode: number } {
     const proc = Bun.spawnSync(["rtk", "--version"], { stdout: "pipe", stderr: "pipe" })

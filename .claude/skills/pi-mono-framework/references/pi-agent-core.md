@@ -1,6 +1,6 @@
 # pi-agent-core — Agent Loop & Tool Execution
 
-Package: `@mariozechner/pi-agent-core` v0.62.0, located at `packages/agent/` (npm: `@mariozechner/pi-agent-core`). Only depends on `@mariozechner/pi-ai`.
+Package: `@earendil-works/pi-agent-core` v1.4.0, located at `packages/agent/` (npm: `@earendil-works/pi-agent-core`). Only depends on `@earendil-works/pi-ai`.
 
 5 source files: `types.ts`, `agent.ts`, `agent-loop.ts`, `proxy.ts`, `index.ts`.
 

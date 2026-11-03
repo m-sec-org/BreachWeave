@@ -2,7 +2,7 @@
 
 RPC mode enables headless operation of the coding agent via a JSON protocol over stdin/stdout. This is useful for embedding the agent in other applications, IDEs, or custom UIs.
 
-**Note for Node.js/TypeScript users**: If you're building a Node.js application, consider using `AgentSession` directly from `@mariozechner/pi-coding-agent` instead of spawning a subprocess. See [`src/core/agent-session.ts`](../src/core/agent-session.ts) for the API. For a subprocess-based TypeScript client, see [`src/modes/rpc/rpc-client.ts`](../src/modes/rpc/rpc-client.ts).
+**Note for Node.js/TypeScript users**: If you're building a Node.js application, consider using `AgentSession` directly from `@earendil-works/pi-coding-agent` instead of spawning a subprocess. See [`src/core/agent-session.ts`](../src/core/agent-session.ts) for the API. For a subprocess-based TypeScript client, see [`src/modes/rpc/rpc-client.ts`](../src/modes/rpc/rpc-client.ts).
 
 ## Starting RPC Mode
 
@@ -283,7 +283,7 @@ Set the reasoning/thinking level for models that support it.
 {"type": "set_thinking_level", "level": "high"}
 ```
 
-Levels: `"off"`, `"minimal"`, `"low"`, `"medium"`, `"high"`, `"xhigh"`
+Levels: `"minimal"`, `"low"`, `"medium"`, `"high"`, `"xhigh"`
 
 Note: `"xhigh"` is only supported by OpenAI codex-max models.
 

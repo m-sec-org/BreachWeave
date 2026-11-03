@@ -1,5 +1,5 @@
-import type { ExtensionContext, ToolDefinition } from "@mariozechner/pi-coding-agent"
-import { Type } from "@sinclair/typebox"
+import type { ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent"
+import { Type } from "typebox"
 import type { ConfiguredModel, ProviderPrefEntry } from "../providers/types"
 
 const QWEN_DEFAULT_MODEL = "qwen-plus"
@@ -198,7 +198,7 @@ function orderKimiModelCandidates(candidates: KimiModelCandidate[], preferredRun
 async function loadMountedConfigState() {
     const { ConfigManager } = await import("../index")
     const config = await ConfigManager.getInstance()
-    config.auth.reload()
+    await config.auth.reload()
     config.models.refresh()
     return {
         config,

@@ -1,4 +1,4 @@
-import type { ToolResultMessage } from "@mariozechner/pi-ai"
+import type { ToolResultMessage } from "@earendil-works/pi-ai"
 import { BashRenderer } from "./renderers/bash-renderer"
 import { DefaultRenderer } from "./renderers/default-renderer"
 import { getToolRenderer, registerToolRenderer } from "./renderer-registry"

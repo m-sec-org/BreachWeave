@@ -1,0 +1,210 @@
+{
+  "format": "breachweave-taric-contract-audit/2",
+  "completedAt": "2026-11-02T05:18:46.981Z",
+  "status": "passed",
+  "source": {
+    "commit": "1c466f4d8ad8f775f98bf867453b81230469287a",
+    "digests": {
+      "packages/core/src/store.ts": "sha256:94ce4d024e2ac7f03627ee9ab2d8bdd2167ae9e42d5ed259e4e43207b2c99afa",
+      "packages/core/src/service.ts": "sha256:559133547ede81d8f810ef2dc8d88fe544a5141b092d698ead4c4d937480b8c9",
+      "packages/core/src/validation.ts": "sha256:73da226ffaf9dceb08460edda23d0aeaa6874349d9a4ff77f1fc9ccac659a605",
+      "packages/core/src/coverage.ts": "sha256:0f6996f69440aacca65667061c0cf7b7bab916d741dd4711720f83e63918a45b",
+      "packages/schemas/src/registry.ts": "sha256:866a96b8fdb650c56c6edae59840b854930f4392f49edd5941ad67c6425b8603",
+      "packages/schemas/schemas/v1/core.schema.json": "sha256:131aea28cf4aa2aaed6b00e6d352ef554d8693e2e2e6a1c2e31b519e90144ab2",
+      "packages/core/dist/index.js": "sha256:ffb5131b3ac71fdeafa30496304985ea76530e3a37b8baef615e26627005a7f7",
+      "packages/core/dist/store.js": "sha256:f00d00b23897c4dd0b5aacd231e5c7270342309780a87b104caad0696b715aa2",
+      "packages/core/dist/service.js": "sha256:a067be06ae32a05d138d20c47a31691728a5648b6b49c03f7f954870d0b9fe4e",
+      "packages/core/dist/coverage.js": "sha256:efabb5ae4a3537ddf5515c62df6ee1cd96f4e7ea1eaa3f01df5eb12fe22731bc",
+      "packages/driver-bun-sqlite/dist/index.js": "sha256:b9cfbc610ef89365ac34401ac8c07c2434b603c89be1eba66cd0ae2ea81e96cd",
+      "packages/driver-bun-sqlite/dist/bun-sqlite.js": "sha256:bb1f484903bc5443e8c37966cd51b0581fda988e0f0793276c1982a0a5e1e9a1",
+      "packages/schemas/dist/src/registry.js": "sha256:1a18057a860a4e8438941448f01136e7e9ecdb4158032004ace4f1e64b1c3c14",
+      "packages/schemas/dist/schemas/v1/core.schema.json": "sha256:b40f92a1dd93e0f756b8dd5a9c12cb8b50b1e5e6192c140c70e128b029025d36"
+    }
+  },
+  "host": {
+    "digests": {
+      "packages/core/src/taric/control-plane-contract.ts": "sha256:da55baa937c4e9fb72afa4a24207c342ca13bc6a43a170e9c2736f79fac190da",
+      "packages/core/src/taric/host-module.ts": "sha256:23906a48c7de90497eebee9b8568bf897bd37c4f784c4f4211d75fc87305362c",
+      "packages/core/src/taric/operation-registry.ts": "sha256:4811e3b741f8ca5b75911b720e8f0cd497b0cf654154b01fe736b7a5fe6dcc35",
+      "scripts/audit-taric-103-contract.ts": "sha256:724d80f434a977fec92e377c30069e6cc9674240ef46ef0139a86ab92198a296"
+    }
+  },
+  "evidenceClass": "upstream_source_and_local_sqlite_probe",
+  "checks": [
+    {
+      "id": "source_matches_pinned_commit",
+      "status": "passed",
+      "sources": [
+        "git:HEAD"
+      ]
+    },
+    {
+      "id": "registry_source_digest_matches_pin",
+      "status": "passed",
+      "sources": [
+        "packages/schemas/src/registry.ts"
+      ]
+    },
+    {
+      "id": "runtime_registry_matches_locked_operations",
+      "status": "passed",
+      "sources": [
+        "packages/schemas/dist/src/registry.js"
+      ]
+    },
+    {
+      "id": "runtime_contract_tuple_matches_pin",
+      "status": "passed",
+      "sources": [
+        "packages/core/dist/index.js",
+        "packages/schemas/dist/src/index.js"
+      ]
+    },
+    {
+      "id": "scope_roe_revision_public_contract_exists",
+      "status": "passed",
+      "sources": [
+        "packages/schemas/schemas/v1/core.schema.json",
+        "packages/schemas/src/registry.ts"
+      ]
+    },
+    {
+      "id": "complete_coverage_domain_public_contract_exists",
+      "status": "passed",
+      "sources": [
+        "packages/schemas/schemas/v1/core.schema.json",
+        "packages/schemas/src/registry.ts"
+      ]
+    },
+    {
+      "id": "action_audit_query_public_contract_exists",
+      "status": "passed",
+      "sources": [
+        "packages/schemas/schemas/v1/core.schema.json",
+        "packages/schemas/src/registry.ts"
+      ]
+    },
+    {
+      "id": "report_snapshot_public_contract_exists",
+      "status": "passed",
+      "sources": [
+        "packages/schemas/schemas/v1/core.schema.json",
+        "packages/schemas/src/registry.ts"
+      ]
+    },
+    {
+      "id": "close_decision_public_contract_exists",
+      "status": "passed",
+      "sources": [
+        "packages/schemas/schemas/v1/core.schema.json",
+        "packages/schemas/src/registry.ts"
+      ]
+    },
+    {
+      "id": "scope-revision_behavioral_contract_probes",
+      "status": "passed",
+      "sources": [
+        "packages/core/test/scope-revision.test.mjs"
+      ]
+    },
+    {
+      "id": "coverage-snapshot_behavioral_contract_probes",
+      "status": "passed",
+      "sources": [
+        "packages/core/test/coverage-snapshot.test.mjs"
+      ]
+    },
+    {
+      "id": "coverage-record-dispatch_behavioral_contract_probes",
+      "status": "passed",
+      "sources": [
+        "packages/core/test/coverage-record-dispatch.test.mjs"
+      ]
+    },
+    {
+      "id": "action-audit_behavioral_contract_probes",
+      "status": "passed",
+      "sources": [
+        "packages/core/test/action-audit.test.mjs"
+      ]
+    },
+    {
+      "id": "report-close_behavioral_contract_probes",
+      "status": "passed",
+      "sources": [
+        "packages/core/test/report-close.test.mjs"
+      ]
+    },
+    {
+      "id": "host_canonical_mapping_complete",
+      "status": "passed",
+      "sources": [
+        "BreachWeave:packages/core/src/taric/control-plane-contract.ts"
+      ]
+    }
+  ],
+  "suites": [
+    {
+      "suite": "scope-revision",
+      "exitCode": 0,
+      "fixtureDigest": "sha256:5c16741b3c5ee2efbfbc2dc79ceb9149b654304f4ddaf0d5b83cb0a259ae819b",
+      "adaptedFixtureDigest": "sha256:4091994e3a78405f551ac98c15eba9af5c841f60c9ec88785edac0cea74a7238",
+      "passedTests": 6,
+      "failedTests": 0,
+      "outputDigest": "sha256:70fa8367abd9bdbb86e7906d6fdfe1f2c885d6ae1e65204e22a983731f7cfb3e"
+    },
+    {
+      "suite": "coverage-snapshot",
+      "exitCode": 0,
+      "fixtureDigest": "sha256:9cce28329577626db96d1cf725e6075f49082cff2a91c90b42a9e74109c1a742",
+      "adaptedFixtureDigest": "sha256:7f21cfdd563e18260ac2fd397207492f98708e486ca901ad5dfaf3d2b0ecf5c6",
+      "passedTests": 7,
+      "failedTests": 0,
+      "outputDigest": "sha256:253c15e915650d587cba6e43097e953c6d2ba136b7cb10e44f5074fcb45b9f8d"
+    },
+    {
+      "suite": "coverage-record-dispatch",
+      "exitCode": 0,
+      "fixtureDigest": "sha256:fb33cd0f9caad13a60e5d20c6a3c7c21b33a5b3395b6a710699849cfef3d6021",
+      "adaptedFixtureDigest": "sha256:a892bdd7b0b2345ffabccda8121396d2b6329e4a6cdd22811e89f626436c1c1e",
+      "passedTests": 3,
+      "failedTests": 0,
+      "outputDigest": "sha256:8e8ed38039662b4b7dd62475d1f8a44611081997a060302e05cad74a922067c2"
+    },
+    {
+      "suite": "action-audit",
+      "exitCode": 0,
+      "fixtureDigest": "sha256:f09b5cffaba36b2f4b13bff8ca749549d8d6c6f07fbf8488c891908cea4a73db",
+      "adaptedFixtureDigest": "sha256:6787f150ed2090c919f3387ab32d7f647a9a7cd228681b89be8f20727112d9d3",
+      "passedTests": 1,
+      "failedTests": 0,
+      "outputDigest": "sha256:74a866342e258b156fac86a9df07f7ad0c8a8cd08e83551de31ad65ae78f4fb8"
+    },
+    {
+      "suite": "report-close",
+      "exitCode": 0,
+      "fixtureDigest": "sha256:bf777749a8ec240ebcf82e38899dde011754585cd5dee2193fff2a16fedd4063",
+      "adaptedFixtureDigest": "sha256:04c67e69f67dfd25d0bc85d6ec6a412ec10e21ed1517597e84326c9b043c330b",
+      "passedTests": 3,
+      "failedTests": 0,
+      "outputDigest": "sha256:a4330fa9ea7b449db62f09b4535e4ba40bfb58f1d56f018a4451f6ca8aa1074e"
+    }
+  ],
+  "metrics": {
+    "passed": 15,
+    "total": 15
+  },
+  "conclusions": {
+    "canonicalMappingsStillUnresolved": [],
+    "completeCoverageDomainSnapshot": "canonical_manifest_fixed_snapshot",
+    "actionAudit": "append_only_fixed_watermark",
+    "closeDecision": "canonical_atomic_cas",
+    "hostAcceptance": "requires_separate_current_source_verification"
+  },
+  "limitations": [
+    "These source/build checks and upstream behavioral suites establish contract availability; host local acceptance is reported separately.",
+    "Upstream suite copies run under Bun with only AuthorityStore default constructors replaced by the public Bun SQLite driver; their assertions are unchanged and original fixture/source digests identify the input.",
+    "No production, remote gateway, power-loss or cross-physical-host conformance is claimed.",
+    "SQLite behavioral probes exercise the selected local dist build; isolated clean-consumer evidence verifies rebuilt artifact provenance separately."
+  ]
+}

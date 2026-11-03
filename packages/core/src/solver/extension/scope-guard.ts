@@ -1,7 +1,7 @@
 import { appendFile } from "fs/promises"
 import { isAbsolute, join, resolve } from "path"
-import { isToolCallEventType } from "@mariozechner/pi-coding-agent"
-import type { ExtensionFactory } from "@mariozechner/pi-coding-agent"
+import { isToolCallEventType } from "@earendil-works/pi-coding-agent"
+import type { ExtensionFactory } from "@earendil-works/pi-coding-agent"
 import { pathStartsWithPrefix, readRunPolicy } from "../../config/tools/pentest-workspace"
 
 export type ScopeGuardMode = "audit" | "enforce"

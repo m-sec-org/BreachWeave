@@ -1,0 +1,42 @@
+{
+  "format": "breachweave-taric-integration-smoke/1",
+  "profile": "authenticated_proxy",
+  "targetContacted": false,
+  "engagementId": "01a17b51-61a2-730f-8b49-b9c4cc46bac1",
+  "resourceId": "01a181f3-190a-7363-8ee4-d3127485fb20",
+  "resourceProvisioning": "trusted_operator_bootstrap",
+  "resourceResolved": true,
+  "queryBack": {
+    "proposalCount": 3,
+    "resourceVisibleToModelProjection": false
+  },
+  "health": {
+    "status": "healthy",
+    "profile": "authenticated_proxy",
+    "mode": "taric_required",
+    "checkedAt": "2026-10-28T10:02:34.564Z"
+  },
+  "operations": [
+    {
+      "kind": "solver",
+      "outcome": "accepted",
+      "durationMs": 15
+    },
+    {
+      "kind": "attempt",
+      "outcome": "accepted",
+      "durationMs": 16
+    },
+    {
+      "kind": "report",
+      "outcome": "accepted",
+      "durationMs": 17
+    }
+  ],
+  "acceptedOperations": 3,
+  "queryBackCount": 3,
+  "redactionRejected": true,
+  "validationPassed": true,
+  "durationMs": 130,
+  "secretMaterial": "omitted"
+}

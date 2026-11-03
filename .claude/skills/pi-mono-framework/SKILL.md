@@ -1,6 +1,6 @@
 ---
 name: pi-mono-framework
-description: "pi-mono agent framework reference (github.com/badlogic/pi-mono). TRIGGER when: writing agent code using pi-ai/pi-agent-core/pi-coding-agent packages, defining tools with TypeBox schemas, implementing TUI or Web UI over an agent core, building extensions that hook into agent lifecycle, working with session/compaction/retry logic, implementing LLM provider abstractions, or any code that imports from @mariozechner/* packages."
+description: "Pi agent framework reference (github.com/earendil-works/pi). TRIGGER when: writing agent code using pi-ai/pi-agent-core/pi-coding-agent packages, defining tools with TypeBox schemas, implementing TUI or Web UI over an agent core, building extensions that hook into agent lifecycle, working with session/compaction/retry logic, implementing LLM provider abstractions, or any code that imports from @earendil-works/* packages."
 ---
 
 # pi-mono Agent Framework
@@ -21,7 +21,7 @@ Strict layer isolation: each layer has ZERO knowledge of layers above. pi-agent-
 
 **These are the most common pitfalls. Read before writing any pi-mono code.**
 
-- **TypeBox is mandatory for tool schemas** — `@sinclair/typebox` for JSON Schema + TypeScript inference. No raw JSON Schema anywhere.
+- **TypeBox is mandatory for tool schemas** — `typebox` for JSON Schema + TypeScript inference. No raw JSON Schema anywhere.
 - **ToolCall.arguments is `Record<string, any>`**, not string — arguments are parsed objects, not raw JSON strings.
 - **ThinkingContent field is `thinking`**, not `text` — and `redacted` is optional (`redacted?: boolean`).
 - **ThinkingLevel has no "off" value** — only `"minimal" | "low" | "medium" | "high" | "xhigh"`.

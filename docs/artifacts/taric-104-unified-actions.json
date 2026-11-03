@@ -1,0 +1,132 @@
+{
+  "reportVersion": "breachweave-taric-action-loopback-fixture/2",
+  "generatedAt": "2026-11-03T01:58:13.982Z",
+  "evidenceClass": "local_dist_sqlite_loopback_fixture",
+  "sourceCommit": "1c466f4d8ad8f775f98bf867453b81230469287a",
+  "runtimeSourceProvenance": "unverified",
+  "authority": "single_host_sqlite",
+  "restartMethod": "clean_authority_close_reopen",
+  "assertions": [
+    {
+      "id": "model_recommendation_only_creates_recommended_action",
+      "passed": true
+    },
+    {
+      "id": "model_cannot_authorize_or_send_its_recommendation",
+      "passed": true
+    },
+    {
+      "id": "default_profile_blocks_before_recommendation_or_traffic",
+      "passed": true
+    },
+    {
+      "id": "canonical_action_metadata_rejects_inline_and_inventory_canaries",
+      "passed": true
+    },
+    {
+      "id": "canonical_recommend_decide_network_result_chain_executes",
+      "passed": true
+    },
+    {
+      "id": "authority_events_record_recommended_authorized_executed",
+      "passed": true
+    },
+    {
+      "id": "structured_socket_provenance_is_canonical",
+      "passed": true
+    },
+    {
+      "id": "active_workitem_resource_path_is_an_enforced_target_boundary",
+      "passed": true
+    },
+    {
+      "id": "authorized_workitem_http_uses_the_taric_action_chain",
+      "passed": true
+    },
+    {
+      "id": "authorized_workitem_request_is_bound_to_scope_and_run",
+      "passed": true
+    },
+    {
+      "id": "public_action_audit_is_complete_pinned_and_ordered",
+      "passed": true
+    },
+    {
+      "id": "canonical_denied_action_leaves_receiver_untouched",
+      "passed": true
+    },
+    {
+      "id": "stale_generation_cannot_recommend_or_send",
+      "passed": true
+    },
+    {
+      "id": "target_auth_is_in_memory_only_with_metadata_result",
+      "passed": true
+    },
+    {
+      "id": "authority_action_audit_contains_no_credential_payload",
+      "passed": true
+    },
+    {
+      "id": "ambiguous_network_outcome_is_canonical_unknown",
+      "passed": true
+    },
+    {
+      "id": "public_action_history_rebuilds_after_sqlite_restart_at_original_watermark",
+      "passed": true
+    },
+    {
+      "id": "unknown_survives_sqlite_restart_and_blocks_reexecution",
+      "passed": true
+    },
+    {
+      "id": "stale_unknown_reconciliation_is_denied",
+      "passed": true
+    },
+    {
+      "id": "explicit_reconciliation_changes_authority_without_traffic",
+      "passed": true
+    },
+    {
+      "id": "expired_run_reclaims_a_new_generation",
+      "passed": true
+    },
+    {
+      "id": "stale_result_is_audited_idempotently_without_mutating_current_action",
+      "passed": true
+    },
+    {
+      "id": "full_control_plane_and_production_claim_remain_blocked",
+      "passed": true
+    }
+  ],
+  "metrics": {
+    "passed": 23,
+    "total": 23
+  },
+  "userConfigurationRead": false,
+  "targetTrafficGenerated": true,
+  "targetTrafficProfile": "isolated_loopback_Bun_serve_only",
+  "productionEvidence": false,
+  "temporaryStateRemoved": true,
+  "profile": {
+    "status": "local_fixture_only",
+    "fullControlPlane": "blocked",
+    "scopeMapping": "immutable_scope_revision",
+    "actionAuditQuery": "canonical_pinned_history",
+    "networkProvenance": "observed_connected_socket",
+    "redirects": "separate_recommendation_required",
+    "runtimeFirewall": false,
+    "productionEvidence": false,
+    "limitations": [
+      "Socket provenance is observed by this host and durably recorded by Taric; it is not independent external attestation.",
+      "Response bodies are private in-memory inputs unless separately captured as Evidence Artifacts.",
+      "This explicit loopback fixture bridge does not authorize project launch or arbitrary shell/socket traffic."
+    ]
+  },
+  "limitations": [
+    "Canonical Resource/WorkItem fixture foundations use the actual AuthorityStore; project manifest bootstrap is outside this smoke.",
+    "Public Action audit reconstructs complete history at a fixed watermark; socket provenance is observed by this host rather than independently attested.",
+    "Only explicit loopback fixture execution is enabled; real project activation and arbitrary shell/socket firewall enforcement remain blocked."
+  ]
+}

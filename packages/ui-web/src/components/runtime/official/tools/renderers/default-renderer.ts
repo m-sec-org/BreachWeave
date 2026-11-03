@@ -1,4 +1,4 @@
-import type { ToolResultMessage } from "@mariozechner/pi-ai"
+import type { ToolResultMessage } from "@earendil-works/pi-ai"
 import { html } from "lit"
 import type { ToolRenderer, ToolRenderResult } from "../types"
 

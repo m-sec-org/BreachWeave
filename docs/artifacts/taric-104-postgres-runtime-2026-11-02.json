@@ -1,0 +1,704 @@
+{
+  "version": "taric-runtime-activation/1",
+  "backend": "postgresql",
+  "implementation_digest": "sha256:9442b5271e27212b87aee9208f14bdc58e5185d3a9ad4d4eb639a5e3385151e1",
+  "schema_version": "1.0.0",
+  "schema_digest": "sha256:ef3046a6e8a34a544b00bc1a72bac620edcaa6984dfcab8cfa36b040120c1e97",
+  "policy_digest": "sha256:264736f0b5c561c870f9aa9a94a539123ffe0f80901d98c0944131d0b2a27e13",
+  "generated_at": "2026-11-02T01:09:05.019Z",
+  "runtime_conformance": {
+    "version": "authority-runtime-conformance/1",
+    "passed": true,
+    "missing_methods": [],
+    "scenarios": [
+      {
+        "id": "proposal",
+        "passed": true,
+        "evidence": [
+          "real Core proposal boundary rejects missing kind, privileged identity, absent/foreign refs with zero mutation",
+          "request-bound proposal idempotency preserves one pending envelope"
+        ]
+      },
+      {
+        "id": "review",
+        "passed": true,
+        "evidence": [
+          "authenticated principal controls review identity and author cannot review own proposal",
+          "immutable proposal/evidence/review hashes and request-bound review retries are verified"
+        ]
+      },
+      {
+        "id": "admission_l1",
+        "passed": true,
+        "evidence": [
+          "L1 reports machine_approved with explicit remaining evidence and independent-review requirements",
+          "candidate UUIDv7 is Core allocated and excluded from ordinary fact recall"
+        ]
+      },
+      {
+        "id": "admission_l2",
+        "passed": true,
+        "evidence": [
+          "writer-only L2 promotion binds independent review, fixed proposal/evidence hash and expected canonical version",
+          "changed evidence fails stale_version without mutation; successful promotion and retry yield one L2 fact"
+        ]
+      },
+      {
+        "id": "checkpoint",
+        "passed": true,
+        "evidence": [
+          "checkpoint rejects forged owner, Attempt, target/WorkItem/Scope version and nested hidden reasoning without mutation",
+          "committed executable checkpoint survives resume with fixed visible state"
+        ]
+      },
+      {
+        "id": "action",
+        "passed": true,
+        "evidence": [
+          "action cannot skip recommendation/host authorization or turn unknown into an executed result automatically",
+          "unknown action stays pending until explicit current-owner reconciliation"
+        ]
+      },
+      {
+        "id": "artifact",
+        "passed": true,
+        "evidence": [
+          "real Core binary upload/catalog/read survives authority restart; corrupt and missing chunks fail closed",
+          "publication-marker fault exposes no premature catalog row and restart recovers only verified bytes"
+        ]
+      },
+      {
+        "id": "lease",
+        "passed": true,
+        "evidence": [
+          "lease requires existing same-Engagement WorkItem; eight concurrent claims yield exactly one owner",
+          "server expiry fences renew and reclaim creates one new generation and Attempt"
+        ]
+      },
+      {
+        "id": "fencing",
+        "passed": true,
+        "evidence": [
+          "reclaimed generation fences run transition, checkpoint, action, reconciliation, Core Artifact begin/append/commit and Core error reporting with zero authority mutation",
+          "stale model proposal is explicitly quarantined and cannot create a canonical record"
+        ]
+      },
+      {
+        "id": "audit_outbox",
+        "passed": true,
+        "evidence": [
+          "concurrent records retain globally unique display IDs and gap-free audit hash order; outbox consumers cannot duplicate events",
+          "database event failure atomically rolls back record, event, outbox and idempotency before a successful same-key retry"
+        ]
+      },
+      {
+        "id": "pinned_read",
+        "passed": true,
+        "evidence": [
+          "keyset continuation retains the same authority read sequence with no duplicate or omitted record",
+          "later inserts and updates remain absent from pinned pages, snapshots and getAt"
+        ]
+      },
+      {
+        "id": "backup_restore",
+        "passed": true,
+        "evidence": [
+          "integrity and schema version failures leave an independent restore destination unmodified",
+          "atomic restore preserves identity/version/display alias and valid audit; real restart supports expected-version CAS"
+        ]
+      }
+    ],
+    "failures": []
+  },
+  "postgres_version": "PostgreSQL 17.11 (Debian 17.11-1.pgdg12+2) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit",
+  "readiness": {
+    "version": "postgres-runtime-readiness/1",
+    "backend": "postgresql",
+    "implementation_state": "available",
+    "runtime_state": "enabled",
+    "evidence_state": "verified",
+    "code": "ready",
+    "health": {
+      "available": true,
+      "schema_valid": true,
+      "fencing": true,
+      "read_seq": 154,
+      "watermarks": {
+        "committed_seq": 154,
+        "projected_seq": 130,
+        "indexed_seq": 0
+      }
+    },
+    "domains": [
+      {
+        "id": "proposal",
+        "missing_methods": [],
+        "missing_tables": [],
+        "missing_columns": [],
+        "persistence_shape": "available",
+        "runtime_evidence": "passed"
+      },
+      {
+        "id": "review",
+        "missing_methods": [],
+        "missing_tables": [],
+        "missing_columns": [],
+        "persistence_shape": "available",
+        "runtime_evidence": "passed"
+      },
+      {
+        "id": "admission_l1",
+        "missing_methods": [],
+        "missing_tables": [],
+        "missing_columns": [],
+        "persistence_shape": "available",
+        "runtime_evidence": "passed"
+      },
+      {
+        "id": "admission_l2",
+        "missing_methods": [],
+        "missing_tables": [],
+        "missing_columns": [],
+        "persistence_shape": "available",
+        "runtime_evidence": "passed"
+      },
+      {
+        "id": "checkpoint",
+        "missing_methods": [],
+        "missing_tables": [],
+        "missing_columns": [],
+        "persistence_shape": "available",
+        "runtime_evidence": "passed"
+      },
+      {
+        "id": "action",
+        "missing_methods": [],
+        "missing_tables": [],
+        "missing_columns": [],
+        "persistence_shape": "available",
+        "runtime_evidence": "passed"
+      },
+      {
+        "id": "artifact",
+        "missing_methods": [],
+        "missing_tables": [],
+        "missing_columns": [],
+        "persistence_shape": "available",
+        "runtime_evidence": "passed"
+      },
+      {
+        "id": "lease",
+        "missing_methods": [],
+        "missing_tables": [],
+        "missing_columns": [],
+        "persistence_shape": "available",
+        "runtime_evidence": "passed"
+      },
+      {
+        "id": "fencing",
+        "missing_methods": [],
+        "missing_tables": [],
+        "missing_columns": [],
+        "persistence_shape": "available",
+        "runtime_evidence": "passed"
+      },
+      {
+        "id": "audit_outbox",
+        "missing_methods": [],
+        "missing_tables": [],
+        "missing_columns": [],
+        "persistence_shape": "available",
+        "runtime_evidence": "passed"
+      },
+      {
+        "id": "pinned_read",
+        "missing_methods": [],
+        "missing_tables": [],
+        "missing_columns": [],
+        "persistence_shape": "available",
+        "runtime_evidence": "passed"
+      },
+      {
+        "id": "backup_restore",
+        "missing_methods": [],
+        "missing_tables": [],
+        "missing_columns": [],
+        "persistence_shape": "available",
+        "runtime_evidence": "passed"
+      }
+    ],
+    "conformance": {
+      "version": "authority-runtime-conformance/1",
+      "passed": true,
+      "missing_methods": [],
+      "scenarios": [
+        {
+          "id": "proposal",
+          "passed": true,
+          "evidence": [
+            "real Core proposal boundary rejects missing kind, privileged identity, absent/foreign refs with zero mutation",
+            "request-bound proposal idempotency preserves one pending envelope"
+          ]
+        },
+        {
+          "id": "review",
+          "passed": true,
+          "evidence": [
+            "authenticated principal controls review identity and author cannot review own proposal",
+            "immutable proposal/evidence/review hashes and request-bound review retries are verified"
+          ]
+        },
+        {
+          "id": "admission_l1",
+          "passed": true,
+          "evidence": [
+            "L1 reports machine_approved with explicit remaining evidence and independent-review requirements",
+            "candidate UUIDv7 is Core allocated and excluded from ordinary fact recall"
+          ]
+        },
+        {
+          "id": "admission_l2",
+          "passed": true,
+          "evidence": [
+            "writer-only L2 promotion binds independent review, fixed proposal/evidence hash and expected canonical version",
+            "changed evidence fails stale_version without mutation; successful promotion and retry yield one L2 fact"
+          ]
+        },
+        {
+          "id": "checkpoint",
+          "passed": true,
+          "evidence": [
+            "checkpoint rejects forged owner, Attempt, target/WorkItem/Scope version and nested hidden reasoning without mutation",
+            "committed executable checkpoint survives resume with fixed visible state"
+          ]
+        },
+        {
+          "id": "action",
+          "passed": true,
+          "evidence": [
+            "action cannot skip recommendation/host authorization or turn unknown into an executed result automatically",
+            "unknown action stays pending until explicit current-owner reconciliation"
+          ]
+        },
+        {
+          "id": "artifact",
+          "passed": true,
+          "evidence": [
+            "real Core binary upload/catalog/read survives authority restart; corrupt and missing chunks fail closed",
+            "publication-marker fault exposes no premature catalog row and restart recovers only verified bytes"
+          ]
+        },
+        {
+          "id": "lease",
+          "passed": true,
+          "evidence": [
+            "lease requires existing same-Engagement WorkItem; eight concurrent claims yield exactly one owner",
+            "server expiry fences renew and reclaim creates one new generation and Attempt"
+          ]
+        },
+        {
+          "id": "fencing",
+          "passed": true,
+          "evidence": [
+            "reclaimed generation fences run transition, checkpoint, action, reconciliation, Core Artifact begin/append/commit and Core error reporting with zero authority mutation",
+            "stale model proposal is explicitly quarantined and cannot create a canonical record"
+          ]
+        },
+        {
+          "id": "audit_outbox",
+          "passed": true,
+          "evidence": [
+            "concurrent records retain globally unique display IDs and gap-free audit hash order; outbox consumers cannot duplicate events",
+            "database event failure atomically rolls back record, event, outbox and idempotency before a successful same-key retry"
+          ]
+        },
+        {
+          "id": "pinned_read",
+          "passed": true,
+          "evidence": [
+            "keyset continuation retains the same authority read sequence with no duplicate or omitted record",
+            "later inserts and updates remain absent from pinned pages, snapshots and getAt"
+          ]
+        },
+        {
+          "id": "backup_restore",
+          "passed": true,
+          "evidence": [
+            "integrity and schema version failures leave an independent restore destination unmodified",
+            "atomic restore preserves identity/version/display alias and valid audit; real restart supports expected-version CAS"
+          ]
+        }
+      ],
+      "failures": []
+    }
+  },
+  "shared_authority": {
+    "version": "shared-authority-release/1",
+    "profile": "multi_host_authority",
+    "backend": "postgresql",
+    "status": "enabled",
+    "enabled": true,
+    "diagnostics": {
+      "profile": "multi_host_authority",
+      "backend": "postgresql",
+      "enabled": true,
+      "host_count": 1,
+      "lease_mode": "server_fenced",
+      "authority_service": {
+        "configured": true,
+        "available": true,
+        "shared": true,
+        "count": 1
+      }
+    },
+    "schema_version": "1.0.0",
+    "schema_digest": "sha256:ef3046a6e8a34a544b00bc1a72bac620edcaa6984dfcab8cfa36b040120c1e97",
+    "policy_digest": "sha256:264736f0b5c561c870f9aa9a94a539123ffe0f80901d98c0944131d0b2a27e13",
+    "backup": {
+      "verified": true,
+      "schema_version": "1.0.0",
+      "source_sequence": 158,
+      "recovered_sequence": 4,
+      "restored_source_sequence": 158,
+      "backup_timestamp": "2026-11-02T01:08:59.673Z",
+      "integrity": "sha256:90e8e652f1403842b9c69f4e4d386a9e11e80f3abf42a3384f5eb1ac4184d49e",
+      "engagement_id": "01a199cd-6b66-7260-802a-dac23c9e953b",
+      "provenance_verified": true,
+      "revisions_verified": true,
+      "unresolved_errors": []
+    },
+    "recovered_sequence": 4,
+    "conformance": {
+      "passed": true,
+      "suite_version": "authority-runtime-conformance/1",
+      "evidence": [
+        "action cannot skip recommendation/host authorization or turn unknown into an executed result automatically",
+        "atomic restore preserves identity/version/display alias and valid audit; real restart supports expected-version CAS",
+        "authenticated principal controls review identity and author cannot review own proposal",
+        "candidate UUIDv7 is Core allocated and excluded from ordinary fact recall",
+        "changed evidence fails stale_version without mutation; successful promotion and retry yield one L2 fact",
+        "checkpoint rejects forged owner, Attempt, target/WorkItem/Scope version and nested hidden reasoning without mutation",
+        "committed executable checkpoint survives resume with fixed visible state",
+        "concurrent records retain globally unique display IDs and gap-free audit hash order; outbox consumers cannot duplicate events",
+        "database event failure atomically rolls back record, event, outbox and idempotency before a successful same-key retry",
+        "immutable proposal/evidence/review hashes and request-bound review retries are verified",
+        "integrity and schema version failures leave an independent restore destination unmodified",
+        "keyset continuation retains the same authority read sequence with no duplicate or omitted record",
+        "L1 reports machine_approved with explicit remaining evidence and independent-review requirements",
+        "later inserts and updates remain absent from pinned pages, snapshots and getAt",
+        "lease requires existing same-Engagement WorkItem; eight concurrent claims yield exactly one owner",
+        "publication-marker fault exposes no premature catalog row and restart recovers only verified bytes",
+        "real Core binary upload/catalog/read survives authority restart; corrupt and missing chunks fail closed",
+        "real Core proposal boundary rejects missing kind, privileged identity, absent/foreign refs with zero mutation",
+        "reclaimed generation fences run transition, checkpoint, action, reconciliation, Core Artifact begin/append/commit and Core error reporting with zero authority mutation",
+        "request-bound proposal idempotency preserves one pending envelope",
+        "server expiry fences renew and reclaim creates one new generation and Attempt",
+        "stale model proposal is explicitly quarantined and cannot create a canonical record",
+        "unknown action stays pending until explicit current-owner reconciliation",
+        "writer-only L2 promotion binds independent review, fixed proposal/evidence hash and expected canonical version"
+      ]
+    },
+    "gates": [
+      {
+        "id": "backup-restore",
+        "passed": true,
+        "required": true,
+        "reason": null,
+        "evidence": [
+          "atomic restore preserves identity/version/display alias and valid audit; real restart supports expected-version CAS",
+          "integrity and schema version failures leave an independent restore destination unmodified"
+        ]
+      },
+      {
+        "id": "failure-recovery",
+        "passed": true,
+        "required": true,
+        "reason": null,
+        "evidence": [
+          "publication-marker fault exposes no premature catalog row and restart recovers only verified bytes",
+          "real Core binary upload/catalog/read survives authority restart; corrupt and missing chunks fail closed"
+        ]
+      },
+      {
+        "id": "lease-fencing",
+        "passed": true,
+        "required": true,
+        "reason": null,
+        "evidence": [
+          "reclaimed generation fences run transition, checkpoint, action, reconciliation, Core Artifact begin/append/commit and Core error reporting with zero authority mutation",
+          "stale model proposal is explicitly quarantined and cannot create a canonical record"
+        ]
+      },
+      {
+        "id": "reader-pin",
+        "passed": true,
+        "required": true,
+        "reason": null,
+        "evidence": [
+          "keyset continuation retains the same authority read sequence with no duplicate or omitted record",
+          "later inserts and updates remain absent from pinned pages, snapshots and getAt"
+        ]
+      },
+      {
+        "id": "storage-conformance",
+        "passed": true,
+        "required": true,
+        "reason": null,
+        "evidence": [
+          "concurrent records retain globally unique display IDs and gap-free audit hash order; outbox consumers cannot duplicate events",
+          "database event failure atomically rolls back record, event, outbox and idempotency before a successful same-key retry"
+        ]
+      }
+    ],
+    "failures": [],
+    "implementation_state": "available",
+    "runtime_state": "enabled",
+    "evidence_state": "verified",
+    "runtime_conformance": {
+      "version": "authority-runtime-conformance/1",
+      "passed": true,
+      "missing_methods": [],
+      "scenarios": [
+        {
+          "id": "proposal",
+          "passed": true,
+          "evidence": [
+            "real Core proposal boundary rejects missing kind, privileged identity, absent/foreign refs with zero mutation",
+            "request-bound proposal idempotency preserves one pending envelope"
+          ]
+        },
+        {
+          "id": "review",
+          "passed": true,
+          "evidence": [
+            "authenticated principal controls review identity and author cannot review own proposal",
+            "immutable proposal/evidence/review hashes and request-bound review retries are verified"
+          ]
+        },
+        {
+          "id": "admission_l1",
+          "passed": true,
+          "evidence": [
+            "L1 reports machine_approved with explicit remaining evidence and independent-review requirements",
+            "candidate UUIDv7 is Core allocated and excluded from ordinary fact recall"
+          ]
+        },
+        {
+          "id": "admission_l2",
+          "passed": true,
+          "evidence": [
+            "writer-only L2 promotion binds independent review, fixed proposal/evidence hash and expected canonical version",
+            "changed evidence fails stale_version without mutation; successful promotion and retry yield one L2 fact"
+          ]
+        },
+        {
+          "id": "checkpoint",
+          "passed": true,
+          "evidence": [
+            "checkpoint rejects forged owner, Attempt, target/WorkItem/Scope version and nested hidden reasoning without mutation",
+            "committed executable checkpoint survives resume with fixed visible state"
+          ]
+        },
+        {
+          "id": "action",
+          "passed": true,
+          "evidence": [
+            "action cannot skip recommendation/host authorization or turn unknown into an executed result automatically",
+            "unknown action stays pending until explicit current-owner reconciliation"
+          ]
+        },
+        {
+          "id": "artifact",
+          "passed": true,
+          "evidence": [
+            "real Core binary upload/catalog/read survives authority restart; corrupt and missing chunks fail closed",
+            "publication-marker fault exposes no premature catalog row and restart recovers only verified bytes"
+          ]
+        },
+        {
+          "id": "lease",
+          "passed": true,
+          "evidence": [
+            "lease requires existing same-Engagement WorkItem; eight concurrent claims yield exactly one owner",
+            "server expiry fences renew and reclaim creates one new generation and Attempt"
+          ]
+        },
+        {
+          "id": "fencing",
+          "passed": true,
+          "evidence": [
+            "reclaimed generation fences run transition, checkpoint, action, reconciliation, Core Artifact begin/append/commit and Core error reporting with zero authority mutation",
+            "stale model proposal is explicitly quarantined and cannot create a canonical record"
+          ]
+        },
+        {
+          "id": "audit_outbox",
+          "passed": true,
+          "evidence": [
+            "concurrent records retain globally unique display IDs and gap-free audit hash order; outbox consumers cannot duplicate events",
+            "database event failure atomically rolls back record, event, outbox and idempotency before a successful same-key retry"
+          ]
+        },
+        {
+          "id": "pinned_read",
+          "passed": true,
+          "evidence": [
+            "keyset continuation retains the same authority read sequence with no duplicate or omitted record",
+            "later inserts and updates remain absent from pinned pages, snapshots and getAt"
+          ]
+        },
+        {
+          "id": "backup_restore",
+          "passed": true,
+          "evidence": [
+            "integrity and schema version failures leave an independent restore destination unmodified",
+            "atomic restore preserves identity/version/display alias and valid audit; real restart supports expected-version CAS"
+          ]
+        }
+      ],
+      "failures": []
+    }
+  },
+  "database_backup": {
+    "verified": true,
+    "kind": "logical_database_dump",
+    "scope": "authority_schema",
+    "format": "pg_dump_custom",
+    "restore": "pg_restore_single_transaction",
+    "archive_bytes": 115171,
+    "archive_digest": "sha256:97be6d90644d09438a8fd57ffed3cd18ff291a5ae457b29c215a402889db6032",
+    "source_sequence": 158,
+    "recovered_sequence": 158,
+    "audit_verified": true,
+    "authority_verified": true,
+    "tables": [
+      {
+        "table": "action_intents",
+        "rows": 1,
+        "digest": "sha256:e70837c3fca7714ba4585d8405a3adf7443572c2a2cb356ace59a3b00113dfc9"
+      },
+      {
+        "table": "admission_review_packs",
+        "rows": 4,
+        "digest": "sha256:7d83a334661ffdac41037b085e3bd1a715160d168caad8395b957fa5e7651d29"
+      },
+      {
+        "table": "artifact_catalog",
+        "rows": 15,
+        "digest": "sha256:da282db5b2521cdbe3288779f10dcbc9f5ec37be198dfbe422fcdda6aa8977d5"
+      },
+      {
+        "table": "artifact_catalog_watermarks",
+        "rows": 15,
+        "digest": "sha256:ad92522df64594d955a1ad3f379030414160e32e93a8aecdfd4df24b22bb77c9"
+      },
+      {
+        "table": "artifact_chunks",
+        "rows": 15,
+        "digest": "sha256:016ecb776450fb289d624c00fa62456058f66c3834a816a2b9f493564e08db10"
+      },
+      {
+        "table": "artifact_idempotency",
+        "rows": 1,
+        "digest": "sha256:8fe48007647d704983dcf61f0dab547b86c73738dcbcd27affa035d7bebef273"
+      },
+      {
+        "table": "artifact_publications",
+        "rows": 2,
+        "digest": "sha256:93d7c803819845e18b9443054b32b890c9f06ab8ef8e6d58891638110d08976d"
+      },
+      {
+        "table": "artifact_sessions",
+        "rows": 3,
+        "digest": "sha256:081a4f3c9749b05a46c3a31f715eb57a6db7c8b5fcd469287b032a7139dde258"
+      },
+      {
+        "table": "artifact_uploads",
+        "rows": 1,
+        "digest": "sha256:f27c52f7b137408b45511b5653d949ae30f6ddfcd520f210bce33d450ce78e73"
+      },
+      {
+        "table": "attempts",
+        "rows": 6,
+        "digest": "sha256:d921ed1298ec2f62286038a55d5c48dc979d822ffd685bbf3e85f7d50f043e13"
+      },
+      {
+        "table": "checkpoints",
+        "rows": 1,
+        "digest": "sha256:f705eaa53091652b636e8fcb8b09ea3aa50637e58d7de9f91d0963f8f8e0abb3"
+      },
+      {
+        "table": "events",
+        "rows": 158,
+        "digest": "sha256:7e6dcb70ae31b7e85c0be762ae9d9cf32d69f16c330de2d5ac6e8c93ee4d7e11"
+      },
+      {
+        "table": "execution_catalog",
+        "rows": 0,
+        "digest": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      {
+        "table": "idempotency",
+        "rows": 23,
+        "digest": "sha256:3bc721a433a31b4a874190bad476600f3a6be97adee7aa04bfcbb082a0577310"
+      },
+      {
+        "table": "metadata",
+        "rows": 5,
+        "digest": "sha256:6a35fc32f086d114f25ec6671f1a84d711d6fc21f3a0c5aca5aed1511e936c45"
+      },
+      {
+        "table": "object_refs",
+        "rows": 91,
+        "digest": "sha256:0a34c9df19a1abab69d8ba3018f69cb42284ea9db97f43c54b3a2be0c21f7a23"
+      },
+      {
+        "table": "operation_markers",
+        "rows": 158,
+        "digest": "sha256:04ed67277cc2bcc6a743152a2884b1f6e89ee19be7bd0b504f736d7b9c78dd12"
+      },
+      {
+        "table": "outbox",
+        "rows": 158,
+        "digest": "sha256:8c581ff64c89245692d8de9ef498be685ae3490fc17660d6134e7e0215157766"
+      },
+      {
+        "table": "proposal_versions",
+        "rows": 11,
+        "digest": "sha256:e098a1afb1fe111a14b6347248a93eadc49ba0a68ba38c15fd89e9866a8bd8ec"
+      },
+      {
+        "table": "proposals",
+        "rows": 6,
+        "digest": "sha256:2ff9cbc9606ff1eed1c862b0010cca1764fd918cdfb46df3df1b839e38db3022"
+      },
+      {
+        "table": "reader_pins",
+        "rows": 0,
+        "digest": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      {
+        "table": "record_versions",
+        "rows": 94,
+        "digest": "sha256:25454f78c8b5182fdd70f1fee44d7428b4e319225ab00986832e5525111c8cec"
+      },
+      {
+        "table": "records",
+        "rows": 76,
+        "digest": "sha256:8381f8eb7324baf88055286b9c4898254a28a8ce40e8ecd64d9964e7bbbbe426"
+      },
+      {
+        "table": "reviews",
+        "rows": 4,
+        "digest": "sha256:f8508d9b57060e0d44434bbf49d5303cbadd0657f88e57cc27ef7ee4d27fb4e0"
+      },
+      {
+        "table": "work_runs",
+        "rows": 4,
+        "digest": "sha256:e1762213c2cca80147556b0ef14d11e164f6c4e2f4cba14ecf8c4b97631a3054"
+      }
+    ],
+    "lease_policy": "isolated restored target remains offline; source writers must be fenced and leases reissued before switching traffic",
+    "payload_bytes_included": false
+  }
+}

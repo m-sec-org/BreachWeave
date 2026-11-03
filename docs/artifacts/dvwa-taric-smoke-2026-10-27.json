@@ -1,0 +1,76 @@
+{
+  "format": "breachweave-dvwa-taric-smoke/1",
+  "date": "2026-10-27",
+  "classification": "single-run-practice-case-study",
+  "verification": {
+    "selectedProfile": "authenticated_proxy",
+    "status": "passed",
+    "sourceRevision": "6957a55f15e0d585f4b728c831021a34f7e02891",
+    "worktreeIdentity": "docs/taric-verification.json",
+    "checks": {
+      "typecheck": 0,
+      "focused": 0,
+      "core": 0,
+      "build": 0
+    },
+    "taricArtifacts": {
+      "@taric/schemas": "1.0.1",
+      "@taric/core": "1.0.1",
+      "@taric/driver-bun-sqlite": "1.0.1",
+      "@taric/cli": "1.0.1",
+      "@taric/mcp": "1.0.1"
+    }
+  },
+  "deployment": {
+    "breachweave": "http://127.0.0.1:3000",
+    "taricGateway": "127.0.0.1:8849",
+    "stateHome": "/tmp/breachweave-dvwa-home",
+    "preExistingAuthority": "incompatible-storage-metadata-left-untouched"
+  },
+  "dvwa": {
+    "target": "http://10.5.207.26:4280/",
+    "loginPageStatus": 200,
+    "sessionTokenPresent": true,
+    "authenticatedPostStatus": 302,
+    "authenticatedIndexStatus": 200,
+    "logoutStatus": 200,
+    "actions": ["login-flow-only"]
+  },
+  "breachweaveTaric": {
+    "health": "healthy",
+    "memoryMode": "taric_best_effort",
+    "memoryWriteRead": {
+      "challengeId": "5eb6ba92",
+      "httpStatus": 200,
+      "candidateCount": 1
+    },
+    "readDiagnostics": {
+      "status": "complete",
+      "watermark": 4,
+      "totalPages": 2,
+      "canonicalStatus": "complete",
+      "candidateStatus": "complete"
+    },
+    "sharedPracticeEngagementIsolation": [
+      {
+        "challengeId": "5eb6ba92",
+        "opaqueProjectId": "bwpk_v1_a9dcad80deca744084fa9c2a1b4af0a128a928dc26aa1588f9ff1f7c8f1d3310",
+        "candidateCount": 1
+      },
+      {
+        "challengeId": "323edcd6",
+        "opaqueProjectId": "bwpk_v1_17532e4ba230ac7b8030bfbeffe2f0d1762a7bc3a4e6ae4545236af39296d3fd",
+        "candidateCount": 1
+      }
+    ]
+  },
+  "solverEvaluation": {
+    "status": "not-run",
+    "reason": "isolated deployment had no configured model API credential"
+  },
+  "limitations": [
+    "No vulnerability discovery, solver capture, report submission, review/admission, WorkRun scheduling, or coverage closure was exercised.",
+    "Shared-Engagement practice isolation was observed through BreachWeave project filtering; it is not Taric authorization isolation.",
+    "This case study is not a paired benchmark or an authorized-pentest acceptance result."
+  ]
+}

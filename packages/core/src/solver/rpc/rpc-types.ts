@@ -1,4 +1,4 @@
-import type { ThinkingLevel } from "@mariozechner/pi-agent-core"
+import type { ThinkingLevel } from "@earendil-works/pi-agent-core"
 
 // ── Init payload (bootstrap only, not part of SDK RPC) ──
 
@@ -7,6 +7,7 @@ export interface SolverInitPayload {
     promptName: string
     task: string
     challengeId?: string
+    projectId?: string
 }
 
 // ── RPC types (mirrored from pi-coding-agent rpc-types.ts) ──

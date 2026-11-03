@@ -1,0 +1,149 @@
+{
+  "generatedAt": "2026-11-01T15:45:25.104Z",
+  "status": "blocked",
+  "evidenceClass": "local_deployment_diagnostics",
+  "productionEvidence": false,
+  "sourceCommit": "1c466f4d8ad8f775f98bf867453b81230469287a",
+  "sourceRuntimeDigests": {
+    "packages/core/dist/index.js": "sha256:ffb5131b3ac71fdeafa30496304985ea76530e3a37b8baef615e26627005a7f7",
+    "packages/core/dist/postgres.js": "sha256:74891a69a6995fb4d75f3d94400d8e75767c6f74a7f9016d1765c964e7450969",
+    "packages/core/src/postgres.ts": "sha256:02b47b61199b97d6444639a1109527d3b168bdeb9da67264ee012d20160ba541"
+  },
+  "environment": {
+    "proxyVariablesPresent": [],
+    "dockerContext": "orbstack",
+    "dockerEndpoint": "unix:///Users/liuhongtao/.orbstack/run/docker.sock"
+  },
+  "checks": [
+    {
+      "id": "docker_context",
+      "args": [
+        "docker",
+        "context",
+        "inspect",
+        "orbstack"
+      ],
+      "exitCode": 0,
+      "timedOut": false,
+      "durationMs": 23,
+      "stdout": "[\n    {\n        \"Name\": \"orbstack\",\n        \"Metadata\": {\n            \"Description\": \"OrbStack\"\n        },\n        \"Endpoints\": {\n            \"docker\": {\n                \"Host\": \"unix:///Users/liuhongtao/.orbstack/run/docker.sock\",\n                \"SkipTLSVerify\": false\n            }\n        },\n        \"TLSMaterial\": {},\n        \"Storage\": {\n            \"MetadataPath\": \"/Users/liuhongtao/.docker/contexts/meta/2d89b732b01a00a2d1675ed3cee9fd0f965daadf90603c989dd3afd4569c6896\",\n            \"TLSPath\": \"/Users/liuhongtao/.docker/contexts/tls/2d89b732b01a00a2d1675ed3cee9fd0f965daadf90603c989dd3afd4569c6896\"\n        }\n    }\n]\n",
+      "stderr": ""
+    },
+    {
+      "id": "orbstack_status",
+      "args": [
+        "orbctl",
+        "status"
+      ],
+      "exitCode": 0,
+      "timedOut": false,
+      "durationMs": 57,
+      "stdout": "Running\n",
+      "stderr": ""
+    },
+    {
+      "id": "orbstack_version",
+      "args": [
+        "orbctl",
+        "version"
+      ],
+      "exitCode": 0,
+      "timedOut": false,
+      "durationMs": 24,
+      "stdout": "Version: 1.11.3 (1110300)\nCommit: fc21fa7866a51675a381a1612c39e06918559d09 (v1.11.3)\n",
+      "stderr": ""
+    },
+    {
+      "id": "docker_unix_ping_no_proxy",
+      "args": [
+        "curl",
+        "--noproxy",
+        "*",
+        "--silent",
+        "--show-error",
+        "--max-time",
+        "5",
+        "--unix-socket",
+        "/Users/liuhongtao/.orbstack/run/docker.sock",
+        "http://localhost/_ping"
+      ],
+      "exitCode": 28,
+      "timedOut": false,
+      "durationMs": 5025,
+      "stdout": "",
+      "stderr": "curl: (28) Operation timed out after 5009 milliseconds with 0 bytes received\n"
+    },
+    {
+      "id": "postgres_protocol_ssl_request",
+      "host": "127.0.0.1",
+      "port": 55432,
+      "requestHex": "0000000804d2162f",
+      "expectedResponse": "53_or_4e",
+      "connected": true,
+      "durationMs": 5010,
+      "bytes": 0,
+      "timedOut": true,
+      "passed": false
+    },
+    {
+      "id": "safe_start_existing_orbstack",
+      "args": [
+        "orbctl",
+        "start"
+      ],
+      "exitCode": 0,
+      "timedOut": false,
+      "durationMs": 27,
+      "stdout": "",
+      "stderr": "OrbStack is already running. Docker engine is ready to use.\nUse --all to start all machines.\n"
+    },
+    {
+      "id": "docker_ping_after_safe_start",
+      "args": [
+        "curl",
+        "--noproxy",
+        "*",
+        "--silent",
+        "--show-error",
+        "--max-time",
+        "5",
+        "--unix-socket",
+        "/Users/liuhongtao/.orbstack/run/docker.sock",
+        "http://localhost/_ping"
+      ],
+      "exitCode": 28,
+      "timedOut": false,
+      "durationMs": 5025,
+      "stdout": "",
+      "stderr": "curl: (28) Operation timed out after 5009 milliseconds with 0 bytes received\n"
+    },
+    {
+      "id": "taric_source_revision",
+      "args": [
+        "git",
+        "-C",
+        "/Users/liuhongtao/development/Taric",
+        "rev-parse",
+        "HEAD"
+      ],
+      "exitCode": 0,
+      "timedOut": false,
+      "durationMs": 22,
+      "stdout": "1c466f4d8ad8f775f98bf867453b81230469287a\n",
+      "stderr": ""
+    }
+  ],
+  "conclusion": "Docker readiness requires an HTTP response from the local Unix socket; PostgreSQL readiness requires a protocol response, not only an accepted TCP connection.",
+  "actions": {
+    "engineRestarted": false,
+    "containersRestarted": false,
+    "databasesDeleted": false,
+    "userConfigurationChanged": false,
+    "safeStartExistingOrbStackAttempted": true
+  },
+  "limitations": [
+    "OrbStack status and start can report running while Docker/PostgreSQL requests time out.",
+    "No broad OrbStack engine restart was attempted; this would interrupt other local containers, including MongoDB.",
+    "This readiness probe is not current-source PostgreSQL conformance evidence."
+  ]
+}

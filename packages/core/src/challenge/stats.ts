@@ -36,6 +36,16 @@ export interface ChallengeStatsRecord {
     solver_active_duration_ms_total: number
     usage: UsageTotals
     updated_at: string
+    authority?: {
+        read_seq: number
+        work_total: number
+        work_completed: number
+        coverage_total: number
+        evidence_total: number
+        action_event_total: number
+        closed: boolean
+        unavailable_metrics: string[]
+    }
 }
 
 export interface ChallengeStatsOverviewBucket {
@@ -78,6 +88,18 @@ export interface ChallengeStatsOverview {
     }>
     models: ChallengeStatsOverviewBucket[]
     prompts: ChallengeStatsOverviewBucket[]
+    authorized_governance: {
+        projects: number
+        work_total: number
+        work_completed: number
+        coverage_total: number
+        evidence_total: number
+        action_event_total: number
+        reports_total: number
+        closed: number
+        gaps_total: number
+        unavailable_metrics: string[]
+    }
     updated_at: string
 }
 
@@ -201,9 +223,9 @@ function isChallengeAssetsCompleted(challenge: ChallengeInfoRecord): boolean {
     return items.length > 0 && items.every((item) => item.scanned)
 }
 
-export async function refreshChallengeStats(rootDir: string, challengeId: string): Promise<{ stats: ChallengeStatsRecord; solver_stats: SolverStatsRecord[] }> {
-    const attempts = await listChallengeAttemptLogs(rootDir, challengeId)
-    const submissions = await listChallengeSubmissionLogs(rootDir, challengeId)
+export async function refreshChallengeStats(rootDir: string, challengeId: string, projectId?: string): Promise<{ stats: ChallengeStatsRecord; solver_stats: SolverStatsRecord[] }> {
+    const attempts = await listChallengeAttemptLogs(rootDir, challengeId, projectId)
+    const submissions = await listChallengeSubmissionLogs(rootDir, challengeId, projectId)
     const solverIds = [...new Set(attempts.map((item) => item.solver_id).filter(Boolean))]
     const solverStats: SolverStatsRecord[] = []
 
@@ -277,6 +299,23 @@ export function buildChallengeStatsOverview(
         submissions: ChallengeSubmissionLogRecord[]
     }>,
 ): ChallengeStatsOverview {
+    // This API measures competition report coverage only. Authorized Coverage
+    // and close decisions are projected by the governance API, never inferred
+    // from local reports, platform solved state, or legacy scanned flags.
+    const authorizedEntries = entries.filter(({ challenge }) => challenge.project?.mode === "authorized_pentest" || challenge.mode === "authorized_pentest")
+    const authorizedGovernance = {
+        projects: authorizedEntries.length,
+        work_total: authorizedEntries.reduce((sum, entry) => sum + (entry.stats.authority?.work_total ?? 0), 0),
+        work_completed: authorizedEntries.reduce((sum, entry) => sum + (entry.stats.authority?.work_completed ?? 0), 0),
+        coverage_total: authorizedEntries.reduce((sum, entry) => sum + (entry.stats.authority?.coverage_total ?? 0), 0),
+        evidence_total: authorizedEntries.reduce((sum, entry) => sum + (entry.stats.authority?.evidence_total ?? 0), 0),
+        action_event_total: authorizedEntries.reduce((sum, entry) => sum + (entry.stats.authority?.action_event_total ?? 0), 0),
+        reports_total: authorizedEntries.reduce((sum, entry) => sum + entry.submissions.length, 0),
+        closed: authorizedEntries.filter((entry) => entry.stats.authority?.closed === true).length,
+        gaps_total: authorizedEntries.reduce((sum, entry) => sum + (entry.challenge.authority_projection?.gaps.length ?? 0), 0),
+        unavailable_metrics: ["solver_count", "attempt_count", "report_duration_ms", "solver_active_duration_ms_total", "usage"],
+    }
+    entries = entries.filter(({ challenge }) => challenge.project?.mode !== "authorized_pentest" && challenge.mode !== "authorized_pentest")
     const modelBuckets = new Map<string, ChallengeStatsOverviewBucket>()
     const promptBuckets = new Map<string, ChallengeStatsOverviewBucket>()
     const modelBucketChallengeSeen = new Map<string, Set<string>>()
@@ -411,6 +450,7 @@ export function buildChallengeStatsOverview(
             .sort((a, b) => a.challenge_id.localeCompare(b.challenge_id)),
         models: finalizeBuckets(modelBuckets),
         prompts: finalizeBuckets(promptBuckets),
+        authorized_governance: authorizedGovernance,
         updated_at: nowIso(),
     }
 }

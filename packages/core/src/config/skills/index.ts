@@ -1,8 +1,8 @@
 import { resolve, dirname } from "path"
 import { mkdir } from "fs/promises"
 import { existsSync, readdirSync, statSync } from "fs"
-import { loadSkillsFromDir } from "@mariozechner/pi-coding-agent"
-import type { Skill } from "@mariozechner/pi-coding-agent"
+import { loadSkillsFromDir } from "@earendil-works/pi-coding-agent"
+import type { Skill } from "@earendil-works/pi-coding-agent"
 import { BUILTIN_SKILL_FILES } from "../builtin-assets.generated"
 
 /** 将内置 skills 释放到用户 config 目录（仅首次 / 有更新时） */

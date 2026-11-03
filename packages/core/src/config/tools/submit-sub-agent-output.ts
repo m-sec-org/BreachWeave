@@ -1,5 +1,5 @@
-import { defineTool } from "@mariozechner/pi-coding-agent"
-import type { Static } from "@sinclair/typebox"
+import { defineTool } from "@earendil-works/pi-coding-agent"
+import type { Static } from "typebox"
 import { SubmitSubAgentOutputParams, createStructuredSubAgentOutput, type SubmittedSubAgentOutputPayload } from "./pentest-output"
 import { ensurePentestWorkspace, pentestSubAgentPath } from "./pentest-workspace"
 

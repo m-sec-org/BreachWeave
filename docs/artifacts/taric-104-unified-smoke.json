@@ -1,0 +1,183 @@
+{
+  "format": "breachweave-taric-unified-smoke/1",
+  "generatedAt": "2026-11-03T01:59:28.340Z",
+  "source": {
+    "path": "/Users/liuhongtao/development/Taric",
+    "commit": "1c466f4d8ad8f775f98bf867453b81230469287a"
+  },
+  "environment": {
+    "dockerContext": "orbstack",
+    "postgresContainer": "taric-authority-postgres-1",
+    "postgresUrl": "postgresql://<redacted>@127.0.0.1:55432/taric"
+  },
+  "status": "passed",
+  "acceptanceProfile": "local_development",
+  "evidenceClass": "unified_local_orbstack_smoke",
+  "productionEvidence": false,
+  "checks": [
+    {
+      "id": "typecheck",
+      "command": "bun run typecheck",
+      "exitCode": 0,
+      "durationMs": 12593
+    },
+    {
+      "id": "ui_typecheck",
+      "command": "bun ./node_modules/typescript/bin/tsc --noEmit -p packages/ui-web",
+      "exitCode": 0,
+      "durationMs": 14362
+    },
+    {
+      "id": "core_source_tests",
+      "command": "bun test packages/core/src",
+      "exitCode": 0,
+      "durationMs": 20538
+    },
+    {
+      "id": "web_session_recovery_tests",
+      "command": "bun test packages/ui-web/src/taric-governance-api.test.ts",
+      "exitCode": 0,
+      "durationMs": 1687
+    },
+    {
+      "id": "orbstack_diagnostics",
+      "command": "bun run scripts/diagnose-taric-orbstack.ts --source=/Users/liuhongtao/development/Taric --output=/Users/liuhongtao/development/BreachWeave/docs/artifacts/taric-104-unified-orbstack-diagnostics.json",
+      "exitCode": 0,
+      "durationMs": 541,
+      "report": "/Users/liuhongtao/development/BreachWeave/docs/artifacts/taric-104-unified-orbstack-diagnostics.json"
+    },
+    {
+      "id": "canonical_control_plane",
+      "command": "bun run scripts/smoke-taric-control-plane.ts --source=/Users/liuhongtao/development/Taric --output=/Users/liuhongtao/development/BreachWeave/docs/artifacts/taric-104-unified-canonical-control-plane.json",
+      "exitCode": 0,
+      "durationMs": 6301,
+      "report": "/Users/liuhongtao/development/BreachWeave/docs/artifacts/taric-104-unified-canonical-control-plane.json"
+    },
+    {
+      "id": "work_restart_lease_recovery",
+      "command": "bun run scripts/smoke-taric-work.ts --source=/Users/liuhongtao/development/Taric --output=/Users/liuhongtao/development/BreachWeave/docs/artifacts/taric-104-unified-work.json",
+      "exitCode": 0,
+      "durationMs": 2612,
+      "report": "/Users/liuhongtao/development/BreachWeave/docs/artifacts/taric-104-unified-work.json"
+    },
+    {
+      "id": "action_restart_unknown_fencing",
+      "command": "bun run scripts/smoke-taric-actions.ts --source=/Users/liuhongtao/development/Taric --output=/Users/liuhongtao/development/BreachWeave/docs/artifacts/taric-104-unified-actions.json",
+      "exitCode": 0,
+      "durationMs": 4192,
+      "report": "/Users/liuhongtao/development/BreachWeave/docs/artifacts/taric-104-unified-actions.json"
+    },
+    {
+      "id": "artifact_process_crash_recovery",
+      "command": "bun run scripts/smoke-taric-artifacts.ts --source=/Users/liuhongtao/development/Taric --output=/Users/liuhongtao/development/BreachWeave/docs/artifacts/taric-104-unified-artifacts.json",
+      "exitCode": 0,
+      "durationMs": 4929,
+      "report": "/Users/liuhongtao/development/BreachWeave/docs/artifacts/taric-104-unified-artifacts.json"
+    },
+    {
+      "id": "artifact_governance_restart",
+      "command": "bun run scripts/smoke-taric-artifact-governance.ts --source=/Users/liuhongtao/development/Taric --output=/Users/liuhongtao/development/BreachWeave/docs/artifacts/taric-104-unified-artifact-governance.json",
+      "exitCode": 0,
+      "durationMs": 2356,
+      "report": "/Users/liuhongtao/development/BreachWeave/docs/artifacts/taric-104-unified-artifact-governance.json"
+    },
+    {
+      "id": "postgres_runtime_backup_restore",
+      "command": "node scripts/verify-postgres-runtime.mjs --output /Users/liuhongtao/development/BreachWeave/docs/artifacts/taric-104-unified-postgres-runtime.json",
+      "exitCode": 0,
+      "durationMs": 28840,
+      "report": "/Users/liuhongtao/development/BreachWeave/docs/artifacts/taric-104-unified-postgres-runtime.json"
+    },
+    {
+      "id": "multi_process_postgres_lease_recovery",
+      "command": "node scripts/verify-multi-host-postgres-live.mjs --output /Users/liuhongtao/development/BreachWeave/docs/artifacts/taric-104-unified-multi-host-postgres.json",
+      "exitCode": 0,
+      "durationMs": 25604,
+      "report": "/Users/liuhongtao/development/BreachWeave/docs/artifacts/taric-104-unified-multi-host-postgres.json"
+    },
+    {
+      "id": "authorized_product_projection_recovery",
+      "command": "bun run scripts/smoke-authorized-product.ts --source=/Users/liuhongtao/development/Taric --output=/Users/liuhongtao/development/BreachWeave/docs/artifacts/taric-104-unified-authorized-product.json",
+      "exitCode": 0,
+      "durationMs": 6462,
+      "report": "/Users/liuhongtao/development/BreachWeave/docs/artifacts/taric-104-unified-authorized-product.json"
+    },
+    {
+      "id": "authorized_solver_host_mediated_egress",
+      "command": "bun run scripts/smoke-authorized-solver-egress.ts --output=/Users/liuhongtao/development/BreachWeave/docs/artifacts/taric-104-unified-authorized-egress.json",
+      "exitCode": 0,
+      "durationMs": 6123,
+      "report": "/Users/liuhongtao/development/BreachWeave/docs/artifacts/taric-104-unified-authorized-egress.json"
+    }
+  ],
+  "metrics": {
+    "passed": 14,
+    "total": 14
+  },
+  "reportMetrics": {
+    "diagnostics": {
+      "passed": 1,
+      "total": 1,
+      "complete": true
+    },
+    "canonical": {
+      "passed": 20,
+      "total": 20,
+      "complete": true
+    },
+    "work": {
+      "passed": 36,
+      "total": 36,
+      "complete": true
+    },
+    "actions": {
+      "passed": 23,
+      "total": 23,
+      "complete": true
+    },
+    "artifacts": {
+      "passed": 12,
+      "total": 12,
+      "complete": true
+    },
+    "artifactGovernance": {
+      "passed": 11,
+      "total": 11,
+      "complete": true
+    },
+    "postgres": {
+      "passed": 12,
+      "total": 12,
+      "complete": true
+    },
+    "multiHost": {
+      "passed": 4,
+      "total": 4,
+      "complete": true
+    },
+    "authorizedProduct": {
+      "passed": 9,
+      "total": 9,
+      "complete": true
+    },
+    "authorizedEgress": {
+      "passed": 5,
+      "total": 5,
+      "complete": true
+    }
+  },
+  "postgres": {
+    "runtimeConformance": "passed",
+    "multiProcessLeaseRecovery": "passed"
+  },
+  "lifecycle": {
+    "managerStartupRecovery": "passed",
+    "projectionRehydration": "passed",
+    "localSessionFallback": "blocked"
+  },
+  "limitations": [
+    "OrbStack multi-process verification uses two independent containers on one workstation and one PostgreSQL authority; physical host failure and network partitions are not covered.",
+    "Taric runtime and fixture reports use the pinned local checkout and do not establish registry, production, power-loss, or real-gateway evidence.",
+    "Authorized Solver egress is verified only for the local Docker network-none profile and supported HTTP model transports; unsupported provider transports remain blocked."
+  ]
+}

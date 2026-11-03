@@ -2,5 +2,13 @@
 linker = "hoisted"
 peer = false
 
+# Taric is distributed through the approved internal registry. The URL and
+# token stay in deployment environment/configuration; never commit credentials.
+[install.scopes]
+"@taric" = { url = "$TARIC_REGISTRY_URL", token = "$TARIC_REGISTRY_TOKEN" }
+
 [serve.static]
 plugins = ["bun-plugin-tailwind"]
+
+[test]
+pathIgnorePatterns = ["**/dist/**"]

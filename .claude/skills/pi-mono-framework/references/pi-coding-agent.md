@@ -1,13 +1,13 @@
 # pi-coding-agent — Reference Application
 
-Package: `@mariozechner/pi-coding-agent` v0.62.0, located at `packages/coding-agent/`. Ships as both CLI (`pi`) and SDK library.
+Package: `@earendil-works/pi-coding-agent` v1.4.0, located at `packages/coding-agent/`. Ships as both CLI (`pi`) and SDK library.
 
 ## Composition Root: createAgentSession()
 
 Central entry point in `src/core/sdk.ts`:
 
 ```typescript
-import { createAgentSession } from "@mariozechner/pi-coding-agent"
+import { createAgentSession } from "@earendil-works/pi-coding-agent"
 
 // Minimal usage
 const { session } = await createAgentSession()
@@ -23,11 +23,10 @@ const { session } = await createAgentSession({
   cwd,
   agentDir: "/tmp/my-agent",
   model,
-  thinkingLevel: "off",
-  authStorage,
-  modelRegistry,
+  thinkingLevel: "minimal",
+  modelRuntime,
   resourceLoader,                              // Custom ResourceLoader
-  tools: [createReadTool(cwd), createBashTool(cwd)],
+  tools: ["read", "bash"],
   sessionManager: SessionManager.inMemory(),
   settingsManager,
 })
@@ -37,7 +36,7 @@ const { session } = await createAgentSession({
 
 1. Parse CLI args (`src/cli/args.ts`)
 2. Resolve config paths (`getAgentDir()`, `getSettingsPath()`)
-3. Create `AuthStorage` + `ModelRegistry`
+3. Create `ModelRuntime` + `ModelRegistry` when direct registry access is needed
 4. Create `SettingsManager`
 5. Create `DefaultResourceLoader` (discovers extensions, skills, prompts, themes)
 6. Call `resourceLoader.reload()`
@@ -55,7 +54,7 @@ CLI Entry (src/cli.ts)
             ├── Extensions (event hooks, custom tools, commands)
             ├── SessionManager (JSONL tree persistence)
             ├── SettingsManager (config persistence)
-            ├── ModelRegistry + AuthStorage
+            ├── ModelRuntime + ModelRegistry
             ├── ResourceLoader (skills, prompts, themes)
             └── Compaction (context window management)
 ```

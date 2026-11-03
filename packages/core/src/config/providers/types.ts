@@ -1,5 +1,5 @@
-import type { ProviderConfig } from "@mariozechner/pi-coding-agent"
-import type { Model, Api } from "@mariozechner/pi-ai"
+import type { ProviderConfig } from "@earendil-works/pi-coding-agent"
+import type { Model, Api } from "@earendil-works/pi-ai"
 
 /** 自定义 provider 注册项 */
 export interface CustomProvider {

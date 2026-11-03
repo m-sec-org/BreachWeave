@@ -1,4 +1,4 @@
-import type { ToolResultMessage } from "@mariozechner/pi-ai"
+import type { ToolResultMessage } from "@earendil-works/pi-ai"
 import type { TemplateResult } from "lit"
 
 export interface ToolRenderResult {
@@ -6,6 +6,6 @@ export interface ToolRenderResult {
     isCustom: boolean
 }
 
-export interface ToolRenderer<TParams = any, TDetails = any> {
-    render(params: TParams | undefined, result: ToolResultMessage<TDetails> | undefined, isStreaming?: boolean): ToolRenderResult
+export interface ToolRenderer<TParams = any> {
+    render(params: TParams | undefined, result: ToolResultMessage | undefined, isStreaming?: boolean): ToolRenderResult
 }

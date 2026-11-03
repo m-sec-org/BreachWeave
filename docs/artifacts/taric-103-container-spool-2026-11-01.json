@@ -1,0 +1,29 @@
+{
+  "version": "taric-container-spool-verification/1",
+  "generated_at": "2026-11-01T01:34:53.461Z",
+  "container_image": "node:22-alpine",
+  "container_runtime": "v22.23.3",
+  "host_uid_gid": "501:20",
+  "checks": [
+    {
+      "id": "bind_mounted_spool_writable_by_container_uid",
+      "passed": true
+    },
+    {
+      "id": "artifact_ingest_hash_verified_in_writer_container",
+      "passed": true
+    },
+    {
+      "id": "authority_and_payload_survive_container_replacement",
+      "passed": true
+    },
+    {
+      "id": "artifact_metadata_and_bytes_verified_in_reader_container",
+      "passed": true,
+      "content_hash": "sha256:1493dfcfaee06cee49fa9c2f2b418715ef968401a4b5e07544e1751eff5202df"
+    }
+  ],
+  "limitations": [
+    "Two containers ran sequentially on one workstation using one bind mount; this does not test a third-party host runtime, separate hosts sharing a writable spool, storage-node failure, or power-loss durability."
+  ]
+}

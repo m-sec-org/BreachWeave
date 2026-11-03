@@ -1,7 +1,7 @@
-import type { ExtensionAPI, ToolInfo } from "@mariozechner/pi-coding-agent";
-import type { ToolDefinition } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ToolInfo } from "@earendil-works/pi-coding-agent";
+import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { McpExtensionState } from "./state.js";
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 import { showStatus, showTools, reconnectServers, authenticateServer, openMcpPanel } from "./commands.js";
 import { loadMcpConfig } from "./config.js";
 import { buildProxyDescription, createDirectToolExecutor, resolveDirectTools } from "./direct-tools.js";

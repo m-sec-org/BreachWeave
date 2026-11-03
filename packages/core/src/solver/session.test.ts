@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test"
-import { buildSolverStartupSnapshot, buildSubagentStartupSnapshot } from "./session"
+import { buildSolverStartupSnapshot, buildSubagentStartupSnapshot, resolveSolverActiveToolNames } from "./session"
 import type { PromptFile } from "../config/prompts/index"
 import type { SolverInitPayload } from "./rpc/rpc-types"
-import type { CreateAgentSessionOptions } from "@mariozechner/pi-coding-agent"
+import type { CreateAgentSessionOptions } from "@earendil-works/pi-coding-agent"
 import { buildChallengeExtensionAppendPrompt } from "./extension/challenge-observer/ralph-loop"
 import { challengeObserverExtension } from "./extension/challenge-observer/index"
 import { buildObserverExtensionAppendPrompt } from "./extension/challenge-observer/observer-loop"
@@ -55,6 +55,59 @@ describe("buildSolverStartupSnapshot", () => {
             tools: [{ name: "bash" }],
             customTools: [{ name: "nmap" }],
         })
+    })
+})
+
+describe("solver tool activation", () => {
+    function customTools(...names: string[]): NonNullable<CreateAgentSessionOptions["customTools"]> {
+        return names.map((name) => ({ name })) as unknown as NonNullable<CreateAgentSessionOptions["customTools"]>
+    }
+
+    const prompt: PromptFile = {
+        name: "challenge-prompt",
+        meta: { tools: ["bash", "challenge_submit_report", "mcp_browser"] },
+        content: "prompt",
+    }
+
+    test("activates custom, MCP, and observer tools for challenge sessions", () => {
+        const names = resolveSolverActiveToolNames(
+            prompt,
+            { tools: ["bash"], customTools: customTools("challenge_submit_report", "security_kimi_search") },
+            { challengeMode: true, authorizedSolver: false },
+        )
+
+        expect(names).toEqual(expect.arrayContaining([
+            "bash",
+            "challenge_submit_report",
+            "security_kimi_search",
+            "mcp_browser",
+            "board_refresh",
+            "memory_list",
+            "idea_list",
+            "idea_search",
+        ]))
+    })
+
+    test("does not expose challenge or observer tools outside challenge sessions", () => {
+        const names = resolveSolverActiveToolNames(
+            prompt,
+            { tools: ["bash"], customTools: customTools("security_kimi_search") },
+            { challengeMode: false, authorizedSolver: false },
+        )
+
+        expect(names).toEqual(expect.arrayContaining(["bash", "security_kimi_search", "mcp_browser"]))
+        expect(names).not.toContain("challenge_submit_report")
+        expect(names).not.toContain("board_refresh")
+    })
+
+    test("authorized sessions expose only their mediated custom tools", () => {
+        const names = resolveSolverActiveToolNames(
+            prompt,
+            { tools: [], customTools: customTools("challenge_authorized_http", "authorized_work_complete") },
+            { challengeMode: true, authorizedSolver: true },
+        )
+
+        expect(names).toEqual(["challenge_authorized_http", "authorized_work_complete"])
     })
 })
 
@@ -128,6 +181,7 @@ describe("challenge collaboration append prompt", () => {
         expect(text).toContain("`idea` 是待验证的攻击假设")
         expect(text).toContain("observer sidecar 会维护")
         expect(text).toContain("系统同步或协作同步消息")
+        expect(text).toContain("把报告写入工作区")
     })
 
     test("observer extension append prompt covers sidecar contract", () => {

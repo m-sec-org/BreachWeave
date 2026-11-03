@@ -9,7 +9,7 @@ Uses `@mariozechner/jiti` (fork with `virtualModules` support) for runtime TypeS
 - **Node/dev**: `alias` mappings to `node_modules`
 
 ### Virtual Modules (available in extensions)
-`@sinclair/typebox`, `@mariozechner/pi-agent-core`, `@mariozechner/pi-tui`, `@mariozechner/pi-ai`, `@mariozechner/pi-ai/oauth`, `@mariozechner/pi-coding-agent`
+`typebox`, `@earendil-works/pi-agent-core`, `@earendil-works/pi-tui`, `@earendil-works/pi-ai`, `@earendil-works/pi-ai/oauth`, `@earendil-works/pi-coding-agent`
 
 ### Module Format
 Default export function: `(pi: ExtensionAPI) => void | Promise<void>`. Both sync and async supported.
@@ -112,7 +112,7 @@ Override inherits built-in renderers if no custom renderCall/renderResult provid
 Most architecturally significant pattern. Creates `*Operations` interfaces and passes to tool factories:
 ```typescript
 import { createBashTool, createReadTool, type BashOperations, type ReadOperations }
-  from "@mariozechner/pi-coding-agent"
+  from "@earendil-works/pi-coding-agent"
 ```
 - `registerFlag("ssh", { type: "string" })` for `--ssh user@host:/path`
 - Lazy resolution in `session_start` (CLI flags unavailable during factory)

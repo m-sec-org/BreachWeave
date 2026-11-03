@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { resolve } from "node:path"
 import { CHALLENGE_ENV_CHALLENGE_ID } from "../../../challenge/env"
+import { buildSessionContext as sdkBuildSessionContext } from "@earendil-works/pi-coding-agent"
 
 const reviewCalls: Array<[string, unknown, unknown]> = []
 const runSolverObserverReview = mock(async (challengeId: string, payload: unknown, options: unknown) => {
@@ -10,13 +11,14 @@ const runSolverObserverReview = mock(async (challengeId: string, payload: unknow
     return { applied: true, summary: "ok" }
 })
 
-const requestHostBridge = mock(async () => ({ is_completed: false }))
+const requestHostBridge = mock(async (): Promise<{ is_completed: boolean; solver_task_completed?: boolean }> => ({ is_completed: false }))
 
 mock.module("../../../challenge/host-bridge-client", () => ({
     requestHostBridge,
+    markAuthorizedWorkFinished: mock(() => {}),
 }))
 
-const { attachObserverLoop } = await import("./observer-loop")
+const { attachObserverLoop, buildObserverExtensionAppendPrompt } = await import("./observer-loop")
 const { loadRecentObserverRounds } = await import("./observer-store")
 
 let sessionDir = ""
@@ -45,17 +47,17 @@ function createExtensionApiHarness() {
     }
 }
 
-function buildSessionContext(entries: unknown[]) {
+function buildSessionContext(entries: unknown[]): ReturnType<typeof sdkBuildSessionContext> {
     return {
         messages: entries,
-    }
+    } as ReturnType<typeof sdkBuildSessionContext>
 }
 
 function attachObserverLoopForTest(pi: Parameters<typeof attachObserverLoop>[0], options: Parameters<typeof attachObserverLoop>[1] = {}) {
     attachObserverLoop(pi, {
         ...options,
-        runReview: runSolverObserverReview,
-        buildSessionContext,
+        runReview: options.runReview ?? runSolverObserverReview,
+        buildSessionContext: options.buildSessionContext ?? buildSessionContext,
     })
 }
 
@@ -86,6 +88,104 @@ afterEach(async () => {
 })
 
 describe("attachObserverLoop", () => {
+    test("retains the full initial assignment and project constraints after session compaction", async () => {
+        const harness = createExtensionApiHarness()
+        const checklist = Array.from({ length: 12 }, (_, index) => `- 测试项 ${index + 1}: 验证已分配入口的响应、权限边界与可复现证据，记录成功条件和失败边界，不扩大资产范围。`)
+        const startupConstraints = [
+            "仅测试已分配的 DVWA SQL Injection 模块，其他模块交给后继 solver。",
+            "保留登录态并使用指定测试账号。".repeat(20),
+            "其他发现只上报候选方向，不继续测试；最后一条补充约束必须保留。",
+        ].join("\n\n")
+        const initialTask = [
+            "目标入口:\n- [66edf0e4270fe56e0133c72dafb11d31] http://target/",
+            "本次测试项:",
+            ...checklist,
+            "",
+            "当前 Memory 摘要:",
+            "无关的历史背景不应混入分配清单。",
+            "",
+            "要求:",
+            "- 按分配清单验证并提交证据。",
+            "",
+            "项目级别启动补充说明（最高优先级遵循）:",
+            startupConstraints,
+        ].join("\n")
+        const compactedMessages = [{ role: "user", content: "压缩摘要：当前正在验证 SQL 注入。" }]
+        attachObserverLoopForTest(harness.pi as never, {
+            buildSessionContext: () => ({ messages: compactedMessages }) as ReturnType<typeof sdkBuildSessionContext>,
+        })
+        const ctx = {
+            sessionManager: {
+                getEntries: () => [
+                    { type: "message", message: { role: "user", content: initialTask } },
+                    { type: "compaction", summary: "省略了初始清单的压缩摘要" },
+                    { type: "message", message: compactedMessages[0] },
+                ],
+            },
+        }
+
+        await harness.emit("message_end", { message: { role: "assistant", content: [{ type: "text", text: "已验证第一个测试项" }] } }, ctx)
+        await harness.emit("agent_end", {}, ctx)
+        await waitUntil(() => reviewCalls.length === 1)
+
+        const payload = reviewCalls[0]?.[1] as { reason: string; session_context: string; message_count: number }
+        expect(payload.reason).toBe("agent_end")
+        expect(payload.message_count).toBe(1)
+        expect(payload.session_context).toContain(`本次测试项:\n${checklist.join("\n")}`)
+        expect(payload.session_context).toContain(`项目级别启动补充说明（最高优先级遵循）:\n${startupConstraints}`)
+        expect(payload.session_context).not.toContain("无关的历史背景不应混入分配清单。")
+    })
+
+    test("solver contract keeps discoveries outside the assignment for later dispatch", () => {
+        const prompt = buildObserverExtensionAppendPrompt()
+        expect(prompt).toContain("严格按初始任务的“本次测试项”执行")
+        expect(prompt).toContain("不自行扩散测试")
+        expect(prompt).toContain("供 planner 和后继 solver 决定后续分配")
+    })
+
+    test("agent_end waits for the active review and the final review to finish", async () => {
+        const harness = createExtensionApiHarness()
+        const periodicReview = Promise.withResolvers<void>()
+        const finalReview = Promise.withResolvers<void>()
+        const reasons: string[] = []
+        const runReview = mock(async (_challengeId: string, payload: { reason: string }) => {
+            reasons.push(payload.reason)
+            await (payload.reason === "agent_end" ? finalReview.promise : periodicReview.promise)
+            return { applied: true }
+        })
+        attachObserverLoopForTest(harness.pi as never, { runReview })
+        let payloadReads = 0
+        const ctx = {
+            sessionManager: {
+                getEntries() {
+                    payloadReads += 1
+                    return []
+                },
+            },
+        }
+        for (let i = 1; i <= 6; i += 1) {
+            await harness.emit("message_end", { message: { role: "assistant", content: [{ type: "text", text: `round ${i}` }] } }, ctx)
+        }
+        await waitUntil(() => reasons.length === 1)
+
+        let agentEndResolved = false
+        const agentEnd = harness.emit("agent_end", {}, ctx).then(() => {
+            agentEndResolved = true
+        })
+        await waitUntil(() => payloadReads === 2)
+        expect(agentEndResolved).toBe(false)
+        expect(reasons).toEqual(["periodic"])
+
+        periodicReview.resolve()
+        await waitUntil(() => reasons.length === 2)
+        expect(reasons).toEqual(["periodic", "agent_end"])
+        expect(agentEndResolved).toBe(false)
+
+        finalReview.resolve()
+        await agentEnd
+        expect(agentEndResolved).toBe(true)
+    })
+
     test("persists rounds and triggers periodic review every 6 assistant rounds", async () => {
         const harness = createExtensionApiHarness()
         attachObserverLoopForTest(harness.pi as never, { observerModel: "kimi-fast" })
@@ -246,6 +346,19 @@ describe("attachObserverLoop", () => {
         const [, , options] = reviewCalls[0]
         const sendCorrectionNotice = (options as { sendCorrectionNotice: (message: string) => Promise<boolean> }).sendCorrectionNotice
         expect(await sendCorrectionNotice("完成后不该发")).toBe(false)
+        expect(harness.sendUserMessage).not.toHaveBeenCalled()
+    })
+
+    test("suppresses efficiency reminders after the solver assignment is completed", async () => {
+        const harness = createExtensionApiHarness()
+        attachObserverLoopForTest(harness.pi as never, {})
+        const ctx = { sessionManager: { getEntries: () => [] } }
+        await harness.emit("message_end", { message: { role: "assistant", content: [{ type: "text", text: "assigned checklist completed" }] } }, ctx)
+        await harness.emit("agent_end", {}, ctx)
+
+        requestHostBridge.mockResolvedValueOnce({ is_completed: false, solver_task_completed: true })
+        const options = reviewCalls[0]?.[2] as { sendCorrectionNotice: (message: string) => Promise<boolean> }
+        expect(await options.sendCorrectionNotice("本分工已完成，不应继续发送提醒")).toBe(false)
         expect(harness.sendUserMessage).not.toHaveBeenCalled()
     })
 })

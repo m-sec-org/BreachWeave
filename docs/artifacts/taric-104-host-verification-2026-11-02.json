@@ -1,0 +1,90 @@
+{
+  "format": "breachweave-taric-host-verification/1",
+  "generatedAt": "2026-11-02T01:36:19Z",
+  "evidenceClass": "local_source_tests_and_build",
+  "source": {
+    "revision": "6957a55f15e0d585f4b728c831021a34f7e02891",
+    "digest": "sha256:fcac2ae8aa6373a23c9ecfc6d1c9dc5ecc53627b148cbb07c79e1ca1717db66e",
+    "fileCount": 1039
+  },
+  "checks": [
+    {
+      "id": "core_typecheck_and_import_boundary",
+      "status": "passed",
+      "command": "bun run typecheck"
+    },
+    {
+      "id": "ui_typecheck",
+      "status": "passed",
+      "command": "bun ./node_modules/typescript/bin/tsc --noEmit -p packages/ui-web"
+    },
+    {
+      "id": "core_tests",
+      "status": "passed",
+      "command": "bun test packages/core",
+      "passed": 449,
+      "skipped": 4,
+      "failed": 0
+    },
+    {
+      "id": "governance_api_tests",
+      "status": "passed",
+      "command": "bun test packages/ui-web/src/taric-governance-api.test.ts",
+      "passed": 6,
+      "failed": 0
+    },
+    {
+      "id": "live_sqlite_governance_tests",
+      "status": "passed",
+      "authority": "single_host_sqlite",
+      "passed": 29,
+      "failed": 0,
+      "source": "/Users/liuhongtao/development/Taric@1c466f4d8ad8f775f98bf867453b81230469287a"
+    },
+    {
+      "id": "canonical_control_plane_smoke",
+      "status": "passed",
+      "report": "taric-104-canonical-control-plane-2026-11-02.json",
+      "passed": 13,
+      "total": 13
+    },
+    {
+      "id": "postgres_runtime_and_backup_restore",
+      "status": "passed",
+      "report": "taric-104-postgres-runtime-2026-11-02.json",
+      "scenariosPassed": 12,
+      "backupRestoreVerified": true,
+      "authoritySequence": 158
+    },
+    {
+      "id": "two_host_container_recovery",
+      "status": "passed",
+      "report": "taric-104-multi-host-postgres-2026-11-02.json",
+      "checksPassed": 4,
+      "limitations": [
+        "Two host containers shared one OrbStack workstation and Compose network.",
+        "Physical-host separation and network-partition/reconnect were not tested."
+      ]
+    },
+    {
+      "id": "repository_arm64_build",
+      "status": "passed",
+      "command": "bun run scripts/build.ts bun-darwin-arm64 <temporary-output>"
+    },
+    {
+      "id": "openspec_validation",
+      "status": "passed",
+      "command": "openspec validate taric-103-recoverable-pentest-control-plane --strict"
+    },
+    {
+      "id": "standalone_ui_package_build",
+      "status": "not_applicable",
+      "command": "bun run --cwd packages/ui-web build",
+      "reason": "The isolated package script does not install the repository build plugin for tch-agent:embedded-linux-solver. The repository build above passed."
+    }
+  ],
+  "localAcceptance": "blocked",
+  "productionAcceptance": "unverified",
+  "productionEvidence": false,
+  "blocker": "Authorized Planner/Solver lifecycle and full product projection cutover remain incomplete."
+}

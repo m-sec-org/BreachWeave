@@ -1,16 +1,22 @@
-import { DaemonManager } from "../../core/src/index"
+import { AuthorizedPentestGovernance, DaemonManager, TARIC_DEFAULT_POLICY_DIGEST, TaricArtifactService, TaricAuthorityCoverageService, TaricAuthorityReportService, buildAuthorizedGovernanceReadiness, createTaricHostModuleForProject, deriveCompositeProjectKey } from "../../core/src/index"
+import { assertTaricControlPlaneContract } from "../../core/src/taric/control-plane-contract"
+import type { HostSettings } from "../../core/src/config"
+import type { AuthorizedProjectSetup, TaricHostModule } from "../../core/src/index"
 import { resolveChallengeDir } from "../../core/src/challenge/store"
 import { ARCHIVE_SOLVERS_DIR, solverSessionDir } from "../../core/src/runtime/types"
 import { readSolverBoardSnapshot } from "../../core/src/solver/board-store"
-import type { AgentSessionEvent } from "@mariozechner/pi-coding-agent"
-import { CHALLENGE_ENV_CHALLENGE_ID } from "../../core/src/challenge/env"
+import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent"
+import { CHALLENGE_ENV_CHALLENGE_ID, CHALLENGE_ENV_PROJECT_ID } from "../../core/src/challenge/env"
+import type { ChallengeInfoRecord } from "../../core/src/challenge/store"
 import { buildChallengeAttackTimeline } from "../../core/src/challenge/attack-timeline"
 import { buildChallengeStatsOverview } from "../../core/src/challenge/stats"
+import { projectAuthorizedCoverage, projectAuthorizedReports, projectAuthorizedWorkItems } from "./authorized-work-view"
 import { cp, mkdir, mkdtemp, rm, stat } from "fs/promises"
 import { tmpdir } from "os"
 import { join, resolve } from "path"
 import index from "./index.html"
 import { loginUser, registerUser, verifyJwt } from "./auth"
+import { createTaricGovernanceRoutes, loadLocalGovernanceArtifactKey, localGovernanceArtifactRoot } from "./taric-governance-api"
 
 export interface WebServerOptions {
     hostname?: string
@@ -36,6 +42,93 @@ function runInBackground(scope: string, task: Promise<unknown>) {
 
 function errorResponse(message: string, status = 500) {
     return Response.json({ error: message }, { status })
+}
+
+function isAuthorizedProject(challenge: Pick<ChallengeInfoRecord, "mode" | "project">): boolean {
+    return challenge.mode === "authorized_pentest" || challenge.project?.mode === "authorized_pentest"
+}
+
+function publicHostSettings(settings: HostSettings) {
+    const { jwtSecret: _jwtSecret, ...auth } = settings.auth
+    const redactEnvironment = (environment: Record<string, string> | undefined) => {
+        if (!environment) return environment
+        return Object.fromEntries(
+            Object.entries(environment).filter(([key]) => !/(key|token|secret|password|credential|authorization)/i.test(key)),
+        )
+    }
+    const taric = settings.taric
+        ? {
+              enabled: settings.taric.enabled,
+              profile: settings.taric.profile,
+              engagementBoundary: settings.taric.engagementBoundary,
+              gatewayTransport: settings.taric.gatewayTransport,
+              gatewayHost: settings.taric.gatewayHost,
+              gatewayPort: settings.taric.gatewayPort,
+              gatewayPath: settings.taric.gatewayPath,
+              gatewayTimeoutMs: settings.taric.gatewayTimeoutMs,
+          }
+        : undefined
+    return {
+        ...settings,
+        auth,
+        taric,
+        runtime: {
+            ...settings.runtime,
+            env: redactEnvironment(settings.runtime.env),
+            solverEnv: redactEnvironment(settings.runtime.solverEnv),
+        },
+    }
+}
+
+type PublicMemoryHealthStatus = "healthy" | "degraded" | "blocked" | "unknown"
+
+interface PublicMemoryHealth {
+    status: PublicMemoryHealthStatus
+    mode: ChallengeInfoRecord["memory_mode"]
+    provider: "legacy_local" | "taric"
+}
+
+function defaultMemoryHealth(challenge: ChallengeInfoRecord): PublicMemoryHealth {
+    const mode = challenge.memory_mode ?? "legacy_local"
+    if (mode === "legacy_local") {
+        return { status: "healthy", mode, provider: "legacy_local" }
+    }
+    return { status: "unknown", mode, provider: "taric" }
+}
+
+function publicChallenge(challenge: ChallengeInfoRecord, memoryHealth = defaultMemoryHealth(challenge)) {
+    const { project: _project, ...record } = challenge
+    return {
+        ...record,
+        // `project_id` is host-derived and opaque. The full project contains
+        // tenant, team, competition, and Engagement identifiers and never
+        // crosses the web API boundary.
+        project_id: challenge.project_id,
+        project_classification: challenge.project_classification,
+        mode: challenge.mode,
+        provider: challenge.provider ?? null,
+        memory_mode: challenge.memory_mode ?? "legacy_local",
+        memory_health: memoryHealth,
+    }
+}
+
+interface ChallengeMemoryHealthReader {
+    listMemory(challengeId: string): Promise<unknown>
+}
+
+async function resolvePublicMemoryHealth(challenge: ChallengeInfoRecord, reader: ChallengeMemoryHealthReader): Promise<PublicMemoryHealth> {
+    const fallback = defaultMemoryHealth(challenge)
+    if (fallback.provider === "legacy_local") return fallback
+
+    try {
+        await reader.listMemory(challenge.id)
+        return { ...fallback, status: "healthy" }
+    } catch {
+        // Do not return Taric adapter errors: they may contain authority paths
+        // or deployment details. The mode determines whether the UI is merely
+        // degraded or blocked from governed actions.
+        return { ...fallback, status: fallback.mode === "taric_required" ? "blocked" : "degraded" }
+    }
 }
 
 function parseAssetInput(value: unknown): string[] {
@@ -284,11 +377,24 @@ export async function startWeb(options: WebServerOptions) {
     }
 
     async function pushRuntimeSnapshot(controller: ReadableStreamDefaultController<Uint8Array>) {
-        safeEnqueue(controller, encodeSse("status", { docker: await containers.ping(), solvers: containers.list().length }), () => runtimeSubscribers.delete(controller))
-        safeEnqueue(controller, encodeSse("solvers", await containers.listAll()), () => runtimeSubscribers.delete(controller))
+        const solvers = await listRuntimeSolvers()
+        safeEnqueue(controller, encodeSse("status", { docker: await containers.ping(), solvers: solvers.length }), () => runtimeSubscribers.delete(controller))
+        safeEnqueue(controller, encodeSse("solvers", solvers), () => runtimeSubscribers.delete(controller))
+    }
+
+    async function authorizedChallengeIds(): Promise<Set<string>> {
+        const challenges = await daemon.challenge.listChallengesSafe("runtime:authorized-filter")
+        return new Set(challenges.filter((challenge) => challenge.mode === "authorized_pentest" || challenge.project?.mode === "authorized_pentest").map((challenge) => challenge.id))
+    }
+
+    async function listRuntimeSolvers() {
+        const [solvers, authorizedIds] = await Promise.all([containers.listAll(), authorizedChallengeIds()])
+        return solvers.filter((solver) => !solver.challengeId || !authorizedIds.has(solver.challengeId))
     }
 
     async function resolveSolverDetailsPayload(solverId: string) {
+        const solver = containers.get(solverId) ?? (await containers.listAll()).find((item) => item.id === solverId)
+        if (solver?.challengeId && (await authorizedChallengeIds()).has(solver.challengeId)) return
         const details = await containers.getDetails(solverId)
         if (!details) return
 
@@ -338,8 +444,9 @@ export async function startWeb(options: WebServerOptions) {
 
     async function broadcastRuntimeSnapshot() {
         if (runtimeSubscribers.size === 0) return
-        const statusFrame = encodeSse("status", { docker: await containers.ping(), solvers: containers.list().length })
-        const solversFrame = encodeSse("solvers", await containers.listAll())
+        const solvers = await listRuntimeSolvers()
+        const statusFrame = encodeSse("status", { docker: await containers.ping(), solvers: solvers.length })
+        const solversFrame = encodeSse("solvers", solvers)
         for (const controller of [...runtimeSubscribers]) {
             safeEnqueue(controller, statusFrame, () => runtimeSubscribers.delete(controller))
             safeEnqueue(controller, solversFrame, () => runtimeSubscribers.delete(controller))
@@ -459,6 +566,73 @@ export async function startWeb(options: WebServerOptions) {
         }
         return protectedRoutes
     }
+
+    const taricGovernanceHosts = new Map<string, Promise<TaricHostModule>>()
+    async function createGovernanceForSession(setup: AuthorizedProjectSetup, sessionId: string): Promise<AuthorizedPentestGovernance> {
+        assertTaricControlPlaneContract()
+        const projectKey = deriveCompositeProjectKey(setup.project)
+        let pending = taricGovernanceHosts.get(projectKey)
+        if (!pending) {
+            pending = createTaricHostModuleForProject(config, setup.project, projectKey)
+            taricGovernanceHosts.set(projectKey, pending)
+            void pending.catch(() => taricGovernanceHosts.delete(projectKey))
+        }
+        const host = await pending
+        const artifactRoot = localGovernanceArtifactRoot(config.dir, sessionId)
+        const hostSettings = await config.getHostSettings()
+        const configuredSecretValues = [
+            ...Object.entries(hostSettings.runtime.env ?? {}).filter(([key]) => /(key|token|secret|password|cookie|credential|authorization|database|dsn)/i.test(key)).map(([, value]) => value),
+            ...Object.entries(hostSettings.runtime.solverEnv ?? {}).filter(([key]) => /(key|token|secret|password|cookie|credential|authorization|database|dsn)/i.test(key)).map(([, value]) => value),
+            process.env.TARIC_OUTBOX_KEY,
+            process.env.TARIC_DATABASE_URL,
+            process.env.TARIC_AUTHORITY_DATABASE_URL,
+            process.env[hostSettings.taric?.gatewayHostTokenEnv ?? "TARIC_GATEWAY_HOST_TOKEN"],
+            process.env[hostSettings.taric?.gatewayModelTokenEnv ?? "TARIC_GATEWAY_MODEL_TOKEN"],
+            process.env[hostSettings.taric?.gatewayOperatorTokenEnv ?? "TARIC_GATEWAY_OPERATOR_TOKEN"],
+        ].filter((value): value is string => Boolean(value?.trim()))
+        const artifactService = new TaricArtifactService({
+            host,
+            egressGrant: { principalId: host.getBinding().hostPrincipalId, engagementId: host.getBinding().engagementId, capability: "content_read" },
+            configurationSecrets: configuredSecretValues,
+        })
+        const coverageService = new TaricAuthorityCoverageService({ host })
+        const reportService = new TaricAuthorityReportService({ host, coverage: coverageService })
+        return new AuthorizedPentestGovernance({ host, setup, artifactRoot, artifactKey: await loadLocalGovernanceArtifactKey(config.dir, sessionId), artifactService, artifactSessionId: sessionId, artifactSessionRoot: artifactRoot, reportService })
+    }
+    const taricGovernanceRoutes = createTaricGovernanceRoutes({
+        async resolvePolicyDigest() {
+            const taric = (await config.getHostSettings()).taric
+            return taric?.policyDigest ?? TARIC_DEFAULT_POLICY_DIGEST
+        },
+        async createGovernance(setup: AuthorizedProjectSetup, sessionId: string) {
+            return createGovernanceForSession(setup, sessionId)
+        },
+        async registerDiscovery(setup: AuthorizedProjectSetup, sessionId: string) {
+            await daemon.challenge.registerAuthorizedProjectBinding({ challengeId: sessionId, title: setup.project.engagement_id, project: setup.project })
+        },
+        async listSessionIds() {
+            return (await config.listAuthorizedProjectBindings()).map((binding) => binding.challengeId)
+        },
+        async loadSession(sessionId) {
+            const binding = (await config.listAuthorizedProjectBindings()).find((item) => item.challengeId === sessionId)
+            if (!binding) return
+            const projection = await daemon.challenge.getAuthorizedProjection(sessionId)
+            if (!projection) return
+            const setup = projection.setup
+            if (!setup) return
+            const governance = await createGovernanceForSession(setup, sessionId)
+            const activeRuns = projection.authority.work.flatMap((item) => {
+                const run = item.active_run
+                if (!run || typeof run !== "object") return []
+                const value = run as Record<string, unknown>
+                if (typeof value.run_id !== "string" || typeof value.attempt_ref !== "string" || typeof value.generation !== "number" || typeof value.lease_expires_at !== "string" || typeof value.target_resource_ref !== "string" || typeof value.owner !== "object" || value.owner === null) return []
+                const owner = value.owner as Record<string, unknown>
+                if (typeof owner.agent_id !== "string") return []
+                return [{ runId: value.run_id, workItemId: String(item.id), attemptId: value.attempt_ref, owner: owner.agent_id, generation: value.generation, leaseExpiresAt: value.lease_expires_at, targetResourceId: value.target_resource_ref }]
+            })
+            return { setup, governance, createdAt: projection.challenge.created_at, activeRuns }
+        },
+    })
 
     const server = Bun.serve({
         hostname,
@@ -683,15 +857,23 @@ export async function startWeb(options: WebServerOptions) {
             // ── Host Settings (runtime/challenge) ──
             "/api/config/host-settings": {
                 async GET() {
-                    return Response.json(await config.getHostSettings())
+                    return Response.json(publicHostSettings(await config.getHostSettings()))
                 },
                 async POST(req) {
                     const patch = await req.json()
                     const settings = await config.setHostSettings(patch)
                     await daemon.reloadFromConfig()
-                    return Response.json(settings)
+                    return Response.json(publicHostSettings(settings))
                 },
             },
+            "/api/taric/governance-readiness": {
+                async GET() {
+                    const settings = await config.getHostSettings()
+                    const readiness = buildAuthorizedGovernanceReadiness({ taric: settings.taric })
+                    return Response.json(readiness)
+                },
+            },
+            ...taricGovernanceRoutes,
             "/api/config/host-planner-prompt": {
                 async GET() {
                     const prompt = await config.getChallengePlannerPrompt()
@@ -710,21 +892,29 @@ export async function startWeb(options: WebServerOptions) {
             "/api/challenges": {
                 async GET() {
                     const challenges = await daemon.challenge.listChallengesSafe("challenge-api:web")
-                    const items = await Promise.all(
-                        challenges.map(async (challenge) => {
+                    try {
+                        const items = await Promise.all(
+                            challenges.map(async (challenge) => {
                             let submissionCount = 0
                             try {
                                 submissionCount = (await daemon.challenge.listSubmissionLogs(challenge.id)).length
                             } catch (error) {
+                                if (isAuthorizedProject(challenge)) throw Object.assign(new Error("authorized report index is unavailable"), { code: "AUTHORIZED_REPORT_INDEX_UNAVAILABLE" })
                                 console.error(`[challenge:list:${challenge.id}:submissions]`, formatError(error))
                             }
                             return {
-                                ...challenge,
+                                ...publicChallenge(challenge, await resolvePublicMemoryHealth(challenge, daemon.challenge)),
                                 submission_count: submissionCount,
                             }
-                        }),
-                    )
-                    return Response.json(items)
+                            }),
+                        )
+                        return Response.json(items)
+                    } catch (error) {
+                        if (error && typeof error === "object" && "code" in error && error.code === "AUTHORIZED_REPORT_INDEX_UNAVAILABLE") {
+                            return errorResponse("authorized report index is unavailable", 503)
+                        }
+                        throw error
+                    }
                 },
                 async POST(req) {
                     try {
@@ -740,13 +930,33 @@ export async function startWeb(options: WebServerOptions) {
                             assets_ip: parseAssetInput(body.assetsIp ?? body.assets_ip),
                             planner_prompt: String(body.plannerPrompt ?? body.planner_prompt ?? "").trim() || null,
                             planner_enabled: body.plannerEnabled === false || body.planner_enabled === false ? false : true,
+                            ...(body.memoryMode === "legacy_local" || body.memory_mode === "legacy_local" ? { memory_mode: "legacy_local" as const } : {}),
                         })
                         if (!challenge) {
                             return Response.json({ error: "failed to create challenge" }, { status: 500 })
                         }
-                        return Response.json(challenge)
+                        return Response.json(publicChallenge(challenge, await resolvePublicMemoryHealth(challenge, daemon.challenge)))
                     } catch (error) {
                         return errorResponse(error instanceof Error ? error.message : String(error), 500)
+                    }
+                },
+            },
+            "/api/challenges/migration/dry-run": {
+                async GET() {
+                    return Response.json(await daemon.challenge.dryRunLegacyMigration())
+                },
+            },
+            "/api/challenges/migration/archive": {
+                async POST(req) {
+                    const body = (await req.json().catch(() => ({}))) as { report?: unknown; challenge_ids?: unknown }
+                    if (!body.report || typeof body.report !== "object" || !Array.isArray(body.challenge_ids)) {
+                        return errorResponse("report and challenge_ids are required", 400)
+                    }
+                    const challengeIds = body.challenge_ids.filter((item): item is string => typeof item === "string")
+                    try {
+                        return Response.json(await daemon.challenge.archiveLegacyUnclassified(body.report as Parameters<typeof daemon.challenge.archiveLegacyUnclassified>[0], challengeIds))
+                    } catch (error) {
+                        return errorResponse(error instanceof Error ? error.message : String(error), 400)
                     }
                 },
             },
@@ -784,14 +994,17 @@ export async function startWeb(options: WebServerOptions) {
                 async GET(req) {
                     const challenge = await daemon.challenge.getChallenge(req.params.id)
                     if (!challenge) return Response.json({ error: "challenge not found" }, { status: 404 })
-                    return Response.json({ content: challenge.planner_prompt ?? "" })
+                    return Response.json({
+                        content: challenge.planner_prompt ?? "",
+                        challenge: publicChallenge(challenge, await resolvePublicMemoryHealth(challenge, daemon.challenge)),
+                    })
                 },
                 async PATCH(req) {
                     try {
                         const body = (await req.json().catch(() => ({}))) as { content?: unknown }
                         const content = typeof body.content === "string" ? body.content : null
                         const challenge = await daemon.challenge.updateChallengePlannerPrompt(req.params.id, content)
-                        return Response.json({ content: challenge.planner_prompt ?? "", challenge })
+                        return Response.json({ content: challenge.planner_prompt ?? "", challenge: publicChallenge(challenge, await resolvePublicMemoryHealth(challenge, daemon.challenge)) })
                     } catch (error) {
                         const message = error instanceof Error ? error.message : String(error)
                         const status = message.includes("not found") ? 404 : 400
@@ -805,7 +1018,7 @@ export async function startWeb(options: WebServerOptions) {
                         const body = (await req.json().catch(() => ({}))) as { enabled?: unknown }
                         if (typeof body.enabled !== "boolean") return errorResponse("enabled must be boolean", 400)
                         const challenge = await daemon.challenge.updateChallengePlannerEnabled(req.params.id, body.enabled)
-                        return Response.json({ enabled: challenge.planner_enabled !== false, challenge })
+                        return Response.json({ enabled: challenge.planner_enabled !== false, challenge: publicChallenge(challenge, await resolvePublicMemoryHealth(challenge, daemon.challenge)) })
                     } catch (error) {
                         const message = error instanceof Error ? error.message : String(error)
                         const status = message.includes("not found") ? 404 : 400
@@ -822,7 +1035,7 @@ export async function startWeb(options: WebServerOptions) {
                         const asset = typeof body.asset === "string" ? body.asset.trim() : ""
                         if (!asset) return errorResponse("asset is required", 400)
                         const challenge = await daemon.challenge.updateChallengeAssetScanned(req.params.id, group, asset, body.scanned !== false)
-                        return Response.json(challenge)
+                        return Response.json(publicChallenge(challenge, await resolvePublicMemoryHealth(challenge, daemon.challenge)))
                     } catch (error) {
                         const message = error instanceof Error ? error.message : String(error)
                         const status = message.includes("not found") ? 404 : 400
@@ -856,27 +1069,63 @@ export async function startWeb(options: WebServerOptions) {
             "/api/challenges/:id": {
                 async GET(req) {
                     const challengeId = req.params.id
-                    const challenge = await daemon.challenge.getChallenge(challengeId)
-                    if (!challenge) {
+                    const storedChallenge = await daemon.challenge.getChallenge(challengeId)
+                    if (!storedChallenge) {
                         return Response.json({ error: "challenge not found" }, { status: 404 })
                     }
-                    const [memory, ideas, attempts, submissions, solvers, statsResult] = await Promise.all([
-                        daemon.challenge.listMemory(challengeId),
-                        daemon.challenge.listIdeas(challengeId),
-                        daemon.challenge.listAttemptLogs(challengeId),
-                        daemon.challenge.listSubmissionLogs(challengeId),
-                        containers.listAll(),
-                        daemon.challenge.refreshStats(challengeId),
+                    const authorized = isAuthorizedProject(storedChallenge)
+                    const projection = authorized ? await daemon.challenge.getAuthorizedProjection(challengeId) : undefined
+                    if (authorized && !projection) {
+                        return errorResponse("authorized authority projection is unavailable", 503)
+                    }
+                    const challenge = projection?.challenge ?? storedChallenge
+                    const [attempts, submissions, solvers, statsResult] = await Promise.all([
+                        projection ? Promise.resolve(projection.attempts) : daemon.challenge.listAttemptLogs(challengeId),
+                        projection ? Promise.resolve(projection.submissions) : daemon.challenge.listSubmissionLogs(challengeId),
+                        authorized ? Promise.resolve([]) : containers.listAll(),
+                        projection ? Promise.resolve(projection.stats) : daemon.challenge.refreshStats(challengeId),
                     ])
+                    let memory: Awaited<ReturnType<typeof daemon.challenge.listMemory>> = []
+                    let ideas: Awaited<ReturnType<typeof daemon.challenge.listIdeas>> = []
+                    let memoryDiagnostics: unknown = null
+                    let memoryHealth = defaultMemoryHealth(challenge)
+                    try {
+                        ;[memory, ideas] = await Promise.all([
+                            daemon.challenge.listMemory(challengeId),
+                            daemon.challenge.listIdeas(challengeId),
+                        ])
+                        memoryDiagnostics = await daemon.challenge.getMemoryReadDiagnostics(challengeId)
+                        memoryHealth = { ...memoryHealth, status: "healthy" }
+                    } catch {
+                        try {
+                            memoryDiagnostics = await daemon.challenge.getMemoryReadDiagnostics(challengeId)
+                        } catch {
+                            memoryDiagnostics = null
+                        }
+                        memoryHealth = await resolvePublicMemoryHealth(challenge, daemon.challenge)
+                        if (challenge.memory_mode !== "taric_best_effort") {
+                            return Response.json(
+                                { error: "memory authority unavailable", challenge: publicChallenge(challenge, memoryHealth), memory_diagnostics: memoryDiagnostics },
+                                { status: 503 },
+                            )
+                        }
+                    }
                     return Response.json({
-                        challenge,
+                        challenge: publicChallenge(challenge, memoryHealth),
                         memory,
+                        memory_diagnostics: memoryDiagnostics,
                         ideas,
                         attempts,
                         submissions,
                         stats: statsResult.stats,
                         solver_stats: statsResult.solver_stats,
-                        solvers: solvers.filter((solver) => solver.challengeId === challengeId),
+                        solvers: authorized ? [] : solvers.filter((solver) => solver.challengeId === challengeId),
+                        ...(projection ? {
+                            authority_work: projectAuthorizedWorkItems(projection.authority.work),
+                            authority_coverage: projectAuthorizedCoverage(projection.authority.coverage),
+                            authority_reports: projectAuthorizedReports(projection.authority.report?.reports ?? []),
+                            authority_read_seq: projection.authority.readSeq,
+                        } : {}),
                     })
                 },
                 async DELETE(req) {
@@ -905,6 +1154,14 @@ export async function startWeb(options: WebServerOptions) {
                     }
                 },
             },
+            "/api/challenges/:id/memory-health": {
+                async GET(req) {
+                    const challenge = await daemon.challenge.getChallenge(req.params.id)
+                    if (!challenge) return Response.json({ error: "challenge not found" }, { status: 404 })
+                    const health = await daemon.challenge.getMemoryHealth(challenge.id)
+                    return Response.json({ challenge_id: challenge.id, project_id: challenge.project_id, ...health }, { status: health.status === "blocked" ? 503 : 200 })
+                },
+            },
             "/api/challenges/:id/solver-sessions.zip": {
                 async GET(req) {
                     try {
@@ -912,6 +1169,9 @@ export async function startWeb(options: WebServerOptions) {
                         const challenge = await daemon.challenge.getChallenge(challengeId)
                         if (!challenge) {
                             return Response.json({ error: "challenge not found" }, { status: 404 })
+                        }
+                        if (challenge.mode === "authorized_pentest" || challenge.project?.mode === "authorized_pentest") {
+                            return Response.json({ error: "authorized solver session archives are rebuilt from Taric and are not available as local Pi files", code: "TARIC_AUTHORITY_REQUIRED" }, { status: 409 })
                         }
 
                         const attempts = await daemon.challenge.listAttemptLogs(challengeId)
@@ -1180,15 +1440,15 @@ export async function startWeb(options: WebServerOptions) {
             "/api/runtime/status": {
                 async GET() {
                     const docker = await containers.ping()
-                    return Response.json({ docker, solvers: containers.list().length })
+                    return Response.json({ docker, solvers: (await listRuntimeSolvers()).length })
                 },
             },
             "/api/runtime/solvers": {
                 async GET() {
-                    return Response.json(await containers.listAll())
+                    return Response.json(await listRuntimeSolvers())
                 },
                 async POST(req) {
-                    const { promptName, task, env } = await req.json()
+                        const { promptName, task, env } = await req.json()
                     if (!promptName) return Response.json({ error: "missing promptName" }, { status: 400 })
                     if (!task) return Response.json({ error: "missing task" }, { status: 400 })
                     try {
@@ -1198,16 +1458,13 @@ export async function startWeb(options: WebServerOptions) {
                         if (prompt.meta.isSubagent) return Response.json({ error: "subagent prompt cannot be started as solver" }, { status: 400 })
 
                         const requestSolverEnv = env && typeof env === "object" ? (env as Record<string, string>) : {}
-                        const solver = await containers.launch(promptName, task, requestSolverEnv)
-                        const challengeId = requestSolverEnv[CHALLENGE_ENV_CHALLENGE_ID]?.trim()
-                        if (challengeId) {
-                            await daemon.challenge.appendAttemptLog({
-                                challengeId,
-                                solverId: solver.id,
-                                promptName,
-                                task,
-                            })
+                        if (Object.keys(requestSolverEnv).some((key) => /^TCH_(?:TARIC_|AUTHORIZED_|MODEL_BRIDGE_)/i.test(key.trim()))) {
+                            return Response.json({ error: "reserved solver environment keys can only be set by the host launch flow" }, { status: 400 })
                         }
+                        if (CHALLENGE_ENV_CHALLENGE_ID in requestSolverEnv || CHALLENGE_ENV_PROJECT_ID in requestSolverEnv) {
+                            return Response.json({ error: "project bindings can only be set by the host project launch flow" }, { status: 400 })
+                        }
+                        const solver = await containers.launch(promptName, task, requestSolverEnv)
                         runInBackground("launch-runtime-solver:runtime-snapshot", broadcastRuntimeSnapshot())
                         runInBackground(`launch-runtime-solver:details:${solver.id}`, broadcastSolverDetails(solver.id))
                         return Response.json(solver)
@@ -1241,6 +1498,7 @@ export async function startWeb(options: WebServerOptions) {
                     try {
                         const solver = containers.get(req.params.id) ?? (await containers.listAll()).find((item) => item.id === req.params.id)
                         if (!solver) return Response.json({ error: "not found" }, { status: 404 })
+                        if (solver.challengeId && (await authorizedChallengeIds()).has(solver.challengeId)) return Response.json({ error: "not found" }, { status: 404 })
 
                         if (solver.status === "starting" || solver.status === "running" || solver.status === "stopping") {
                             await containers.stopSolver(req.params.id)
@@ -1263,8 +1521,10 @@ export async function startWeb(options: WebServerOptions) {
                 },
             },
             "/api/runtime/solvers/:id/stream": {
-                GET(req) {
+                async GET(req) {
                     const solverId = req.params.id
+                    const solver = containers.get(solverId) ?? (await containers.listAll()).find((item) => item.id === solverId)
+                    if (solver?.challengeId && (await authorizedChallengeIds()).has(solver.challengeId)) return Response.json({ error: "not found" }, { status: 404 })
                     return openSse(
                         req,
                         (controller) => {
@@ -1285,6 +1545,8 @@ export async function startWeb(options: WebServerOptions) {
                 async POST(req) {
                     const body = await req.json()
                     try {
+                        const solver = containers.get(req.params.id) ?? (await containers.listAll()).find((item) => item.id === req.params.id)
+                        if (solver?.challengeId && (await authorizedChallengeIds()).has(solver.challengeId)) return Response.json({ error: "not found" }, { status: 404 })
                         containers.sendCommand(req.params.id, body)
                         return Response.json({ ok: true })
                     } catch (e: unknown) {

@@ -1,6 +1,6 @@
-import { defineTool } from "@mariozechner/pi-coding-agent"
-import type { Static } from "@sinclair/typebox"
-import { Type } from "@sinclair/typebox"
+import { defineTool } from "@earendil-works/pi-coding-agent"
+import type { Static } from "typebox"
+import { Type } from "typebox"
 import type { IdeaRecord, IdeaStatus, MemoryEntry, MemoryKind } from "../../../challenge/memory"
 import { requestHostBridge } from "../../../challenge/host-bridge-client"
 import {
@@ -117,6 +117,18 @@ function formatLayeredIdeaTable(localItems: IdeaRecord[], challengeItems: IdeaRe
         "## Challenge Ideas",
         formatIdeaTable(challengeItems, { updatedAtFallback: true }),
     ].join("\n")
+}
+
+interface AuthoritativeBoardRefresh {
+    challenge_id: string
+    authoritative: true
+    memory: MemoryEntry[]
+    ideas: IdeaRecord[]
+    diagnostics?: unknown
+}
+
+async function refreshAuthoritativeBoard(): Promise<AuthoritativeBoardRefresh> {
+    return requestHostBridge<AuthoritativeBoardRefresh>("challenge_board_refresh", {})
 }
 
 async function listChallengeMemoryLayer(): Promise<MemoryEntry[]> {
@@ -268,6 +280,20 @@ function formatSolverHistory(records: SolverHistoryRecord[], totalEntries: numbe
 }
 
 const observerSidecarBoardTools = [
+    defineTool({
+        name: "board_refresh",
+        label: "Board Refresh",
+        description: "Refresh the challenge board from the host authority before acting on a notification or after reconnecting.",
+        promptSnippet: "board_refresh: re-query the authoritative challenge board after a sync signal or reconnect",
+        parameters: EmptyParams,
+        async execute() {
+            const result = await refreshAuthoritativeBoard()
+            return {
+                content: [{ type: "text", text: formatLayeredMemoryTable([], result.memory) + "\n\n" + formatLayeredIdeaTable([], result.ideas) }],
+                details: result,
+            }
+        },
+    }),
     defineTool({
         name: "memory_list",
         label: "Memory List",
@@ -498,6 +524,20 @@ export function createObserverSidecarToolsWithOptions(options?: {
 }
 
 export const challengeObserverAgentTools = [
+    defineTool({
+        name: "board_refresh",
+        label: "Board Refresh",
+        description: "Refresh the challenge board from the host authority before acting on a notification or after reconnecting.",
+        promptSnippet: "board_refresh: re-query the authoritative challenge board after a sync signal or reconnect",
+        parameters: EmptyParams,
+        async execute() {
+            const result = await refreshAuthoritativeBoard()
+            return {
+                content: [{ type: "text", text: formatLayeredMemoryTable([], result.memory) + "\n\n" + formatLayeredIdeaTable([], result.ideas) }],
+                details: result,
+            }
+        },
+    }),
     defineTool({
         name: "memory_list",
         label: "Memory List",

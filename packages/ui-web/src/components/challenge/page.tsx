@@ -55,6 +55,9 @@ function assetTextList(value: string | string[] | null | undefined): string[] {
 }
 
 function challengeStatus(challenge: ChallengeInfoRecord) {
+    if (challenge.mode === "authorized_pentest" || challenge.project?.mode === "authorized_pentest") {
+        return challenge.authority_projection?.closed ? "completed" : challenge.instance_status || "unknown"
+    }
     if (isChallengeAssetsCompleted(challenge)) return "completed"
     return challenge.instance_status || "unknown"
 }
@@ -74,6 +77,20 @@ function challengeAssetProgress(challenge: Pick<ChallengeInfoRecord, "assets">) 
     const items = challengeAssetItems(challenge)
     const scanned = items.filter((item) => item.scanned).length
     return { total: items.length, scanned, pending: Math.max(items.length - scanned, 0) }
+}
+
+function challengeCoverageProgress(challenge: ChallengeInfoRecord) {
+    return {
+        total: challenge.authority_projection?.coverage_total ?? 0,
+        resolved: challenge.authority_projection?.coverage_resolved ?? 0,
+    }
+}
+
+function authorizedCoverageProgress(details: Pick<ChallengeDetails, "authority_coverage">) {
+    const cells = details.authority_coverage ?? []
+    const pendingStatuses = new Set(["not_tested", "queued", "in_progress", "tested_no_observation", "blocked", "blocked_by_control", "inconclusive"])
+    const resolved = cells.filter((cell) => !pendingStatuses.has(cell.status)).length
+    return { total: cells.length, resolved, pending: Math.max(cells.length - resolved, 0) }
 }
 
 function isChallengeAssetsCompleted(challenge: Pick<ChallengeInfoRecord, "assets">) {
@@ -511,6 +528,21 @@ function StatsOverviewDialog(props: {
                         </TabsList>
 
                         <TabsContent value="overview" className="space-y-4">
+                            {statsOverview.authorized_governance.projects > 0 ? (
+                                <div className="rounded-md border px-4 py-3">
+                                    <div className="text-sm font-medium">Authorized engagements · Taric</div>
+                                    <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted-foreground">
+                                        <span>{statsOverview.authorized_governance.projects} projects</span>
+                                        <span>Work {statsOverview.authorized_governance.work_completed}/{statsOverview.authorized_governance.work_total}</span>
+                                        <span>Coverage {statsOverview.authorized_governance.coverage_total}</span>
+                                        <span>Evidence {statsOverview.authorized_governance.evidence_total}</span>
+                                        <span>Reports {statsOverview.authorized_governance.reports_total}</span>
+                                        <span>Gaps {statsOverview.authorized_governance.gaps_total}</span>
+                                        <span>Closed {statsOverview.authorized_governance.closed}</span>
+                                        <span>Solver duration and tokens unavailable</span>
+                                    </div>
+                                </div>
+                            ) : null}
                             <div className="grid gap-4 md:grid-cols-7">
                                 <div className="rounded-lg border px-4 py-3">
                                     <div className="text-xs text-muted-foreground">Completion</div>
@@ -1112,7 +1144,9 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
                                                     <div className="truncate text-xs text-muted-foreground">{challenge.description || "No description."}</div>
                                                 </TableCell>
                                                 <TableCell>
-                                                    {challengeAssetProgress(challenge).scanned}/{challengeAssetProgress(challenge).total}
+                                                    {challenge.mode === "authorized_pentest"
+                                                        ? `${challengeCoverageProgress(challenge).resolved}/${challengeCoverageProgress(challenge).total}`
+                                                        : `${challengeAssetProgress(challenge).scanned}/${challengeAssetProgress(challenge).total}`}
                                                 </TableCell>
                                                 <TableCell>
                                                     {formatCount(challenge.submission_count)}
@@ -1272,8 +1306,10 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
                             </div>
                             <div className="shrink-0 space-y-3 text-right text-sm text-muted-foreground">
                                 <div>
-                                    <div>assets {challengeAssetProgress(details.challenge).scanned}/{challengeAssetProgress(details.challenge).total}</div>
-                                    <div>attempts {details.attempts.length}</div>
+                                    {details.challenge.mode === "authorized_pentest" ? (
+                                        <div>coverage {authorizedCoverageProgress(details).resolved}/{authorizedCoverageProgress(details).total}</div>
+                                    ) : <div>assets {challengeAssetProgress(details.challenge).scanned}/{challengeAssetProgress(details.challenge).total}</div>}
+                                    <div>attempts {details.stats.authority?.unavailable_metrics.includes("attempt_count") ? "—" : details.attempts.length}</div>
                                     <div>reports {details.submissions.length}</div>
                                 </div>
                                 <div className="flex justify-end gap-2">
@@ -1320,6 +1356,7 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
                                 </div>
                             </section>
                         </div>
+                        {details.challenge.mode !== "authorized_pentest" && <>
                         <section className="min-w-0 space-y-3 rounded-lg border p-4">
                             <div className="flex flex-wrap items-start justify-between gap-3">
                                 <div className="space-y-1">
@@ -1364,29 +1401,39 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
                                 disabled={plannerSaving}
                             />
                         </section>
+                        </>}
                         <div className="grid gap-3 md:grid-cols-4">
                             <div className="rounded-lg border px-4 py-3">
                                 <div className="text-xs text-muted-foreground">Wall Time</div>
-                                <div className="mt-1 text-sm font-medium">{formatMinutes(details.stats.report_duration_ms)}</div>
+                                <div className="mt-1 text-sm font-medium">{details.stats.authority?.unavailable_metrics.includes("report_duration_ms") ? "—" : formatMinutes(details.stats.report_duration_ms)}</div>
                             </div>
                             <div className="rounded-lg border px-4 py-3">
                                 <div className="text-xs text-muted-foreground">Total Solver Time</div>
-                                <div className="mt-1 text-sm font-medium">{formatMinutes(details.stats.solver_active_duration_ms_total)}</div>
+                                <div className="mt-1 text-sm font-medium">{details.stats.authority?.unavailable_metrics.includes("solver_active_duration_ms_total") ? "—" : formatMinutes(details.stats.solver_active_duration_ms_total)}</div>
                             </div>
                             <div className="rounded-lg border px-4 py-3">
                                 <div className="text-xs text-muted-foreground">Total Tokens</div>
-                                <div className="mt-1 text-sm font-medium">{formatTokenCount(details.stats.usage.total)}</div>
+                                <div className="mt-1 text-sm font-medium">{details.stats.authority?.unavailable_metrics.includes("usage") ? "—" : formatTokenCount(details.stats.usage.total)}</div>
                             </div>
                             <div className="rounded-lg border px-4 py-3">
-                                <div className="text-xs text-muted-foreground">Solvers</div>
-                                <div className="mt-1 text-sm font-medium">{details.stats.solver_count}</div>
+                                <div className="text-xs text-muted-foreground">
+                                    {details.challenge.mode === "authorized_pentest" ? "Work Items" : "Solvers"}
+                                </div>
+                                <div className="mt-1 text-sm font-medium">
+                                    {details.challenge.mode === "authorized_pentest" ? details.authority_work?.length ?? 0 : details.stats.solver_count}
+                                </div>
                             </div>
                         </div>
+                        {details.stats.authority ? (
+                            <div className="text-xs text-muted-foreground">
+                                Taric read_seq {details.stats.authority.read_seq} · Coverage {details.stats.authority.coverage_total} · Evidence {details.stats.authority.evidence_total} · Close {details.stats.authority.closed ? "closed" : "open"} · Gaps {details.challenge.authority_projection?.gaps.length ?? 0}
+                            </div>
+                        ) : null}
                     </div>
 
                     <Tabs value={detailTab} onValueChange={setDetailTab} className="min-w-0 space-y-4">
                         <TabsList>
-                            <TabsTrigger value="solvers">Solvers</TabsTrigger>
+                            <TabsTrigger value="solvers">{details.challenge.mode === "authorized_pentest" ? "Work" : "Solvers"}</TabsTrigger>
                             <TabsTrigger value="assets">Assets</TabsTrigger>
                             <TabsTrigger value="memory">Memory</TabsTrigger>
                             <TabsTrigger value="ideas">Ideas</TabsTrigger>
@@ -1394,7 +1441,26 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
                         </TabsList>
 
                         <TabsContent value="solvers" className="min-w-0 space-y-3">
-                            {details.solver_stats.length > 0 && (
+                            {details.challenge.mode === "authorized_pentest" ? (
+                                details.authority_work && details.authority_work.length > 0 ? (
+                                    <div className="divide-y rounded-md border">
+                                        {details.authority_work.map((item) => (
+                                            <div key={item.id} className="flex flex-wrap items-start justify-between gap-3 px-4 py-3">
+                                                <div className="min-w-0">
+                                                    <div className="break-all text-sm font-medium">{item.id}</div>
+                                                    <div className="mt-1 break-all text-xs text-muted-foreground">
+                                                        Resources: {item.resourceRefs.length > 0 ? item.resourceRefs.join(", ") : "none"}
+                                                    </div>
+                                                </div>
+                                                <div className="shrink-0 text-right text-xs text-muted-foreground">
+                                                    <Badge variant="outline">{item.status}</Badge>
+                                                    {item.updatedAt ? <div className="mt-1">updated {formatTime(item.updatedAt)}</div> : null}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : <div className="text-sm text-muted-foreground">No Work items.</div>
+                            ) : details.solver_stats.length > 0 && (
                                 <div className="min-w-0 space-y-3">
                                     {sortSolverStatsByNewestFirst(details.solver_stats, details.solvers).map((solverStat) => {
                                         const liveSolver = details.solvers.find((item) => item.id === solverStat.solver_id)
@@ -1463,17 +1529,36 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
                                     })}
                                 </div>
                             )}
-                            {details.solver_stats.length === 0 && <div className="text-sm text-muted-foreground">No solvers.</div>}
+                            {details.challenge.mode !== "authorized_pentest" && details.solver_stats.length === 0 && <div className="text-sm text-muted-foreground">No solvers.</div>}
                         </TabsContent>
 
                         <TabsContent value="assets" className="min-w-0 space-y-3">
-                            {!details.challenge.assets || (details.challenge.assets.urls.length === 0 && details.challenge.assets.ips.length === 0) ? (
-                                <div className="text-sm text-muted-foreground">No assets yet.</div>
-                            ) : null}
-                            <div className="grid gap-3 lg:grid-cols-2">
-                                <AssetGroup title="URLs" items={details.challenge.assets?.urls ?? []} />
-                                <AssetGroup title="IPs" items={details.challenge.assets?.ips ?? []} />
-                            </div>
+                            {details.challenge.mode === "authorized_pentest" ? (
+                                <div className="divide-y rounded-md border">
+                                    {(details.authority_coverage ?? []).map((cell) => (
+                                        <div key={cell.id} className="flex flex-wrap items-start justify-between gap-3 px-4 py-3">
+                                            <div className="min-w-0">
+                                                <div className="break-all text-sm font-medium">{cell.category}</div>
+                                                <div className="mt-1 break-all text-xs text-muted-foreground">Resource {cell.resourceRef} · Revision {cell.resourceRevisionRef}</div>
+                                                <div className="mt-1 break-all text-xs text-muted-foreground">Evidence {cell.evidenceRefs.length > 0 ? cell.evidenceRefs.join(", ") : "none"}</div>
+                                                {cell.limitations.length > 0 ? <div className="mt-1 text-xs text-muted-foreground">{cell.limitations.join(" · ")}</div> : null}
+                                            </div>
+                                            <Badge variant="outline">{cell.status}</Badge>
+                                        </div>
+                                    ))}
+                                    {(details.authority_coverage ?? []).length === 0 ? <div className="px-4 py-3 text-sm text-muted-foreground">No canonical Coverage cells.</div> : null}
+                                </div>
+                            ) : (
+                                <>
+                                    {!details.challenge.assets || (details.challenge.assets.urls.length === 0 && details.challenge.assets.ips.length === 0) ? (
+                                        <div className="text-sm text-muted-foreground">No assets yet.</div>
+                                    ) : null}
+                                    <div className="grid gap-3 lg:grid-cols-2">
+                                        <AssetGroup title="URLs" items={details.challenge.assets?.urls ?? []} />
+                                        <AssetGroup title="IPs" items={details.challenge.assets?.ips ?? []} />
+                                    </div>
+                                </>
+                            )}
                         </TabsContent>
 
                         <TabsContent value="memory" className="min-w-0 space-y-3">
@@ -1557,6 +1642,21 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
                         </TabsContent>
 
                         <TabsContent value="reports" className="min-w-0 space-y-3">
+                            {details.challenge.mode === "authorized_pentest" ? <>
+                                {(details.authority_reports ?? []).map((report) => (
+                                    <div key={report.id} className="min-w-0 space-y-2 rounded-lg border px-4 py-3 text-sm">
+                                        <div className="flex items-center justify-between gap-3">
+                                            <Badge variant="outline">Report snapshot</Badge>
+                                            {report.committedAt && <span className="text-xs text-muted-foreground">{formatTime(report.committedAt)}</span>}
+                                        </div>
+                                        <div className="break-all">Snapshot: {report.id}</div>
+                                        <div className="break-all">Artifact: {report.artifactRef}</div>
+                                        <div className="break-all text-xs text-muted-foreground">Digest: {report.artifactDigest}</div>
+                                        <div className="break-all text-xs text-muted-foreground">Evidence: {report.evidenceRefs.join(", ") || "—"}</div>
+                                    </div>
+                                ))}
+                                {(details.authority_reports ?? []).length === 0 && <div className="text-sm text-muted-foreground">No report snapshots yet.</div>}
+                            </> : <>
                             {details.submissions.length === 0 && <div className="text-sm text-muted-foreground">No reports yet.</div>}
                             {details.submissions.map((submission) => {
                                 const solverId = submission.solver_id?.trim() || ""
@@ -1635,6 +1735,7 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
                                     </div>
                                 )
                             })}
+                            </>}
                         </TabsContent>
                     </Tabs>
                 </div>

@@ -119,6 +119,36 @@ describe("buildChallengeStatsOverview asset-based buckets", () => {
         expect(modelBucket?.submission_count).toBe(3)
         expect(promptBucket?.assets_covered).toBe(2)
     })
+
+    test("authorized project totals come from canonical governance metrics and stay separate", () => {
+        const challenge = {
+            ...createChallenge("authorized-a", [false]),
+            mode: "authorized_pentest" as const,
+            authority_projection: {
+                source: "canonical_taric_records" as const,
+                read_seq: 42,
+                lifecycle_mode: "taric_projection" as const,
+                closed: true,
+                can_close: true,
+                gaps: [],
+                work_total: 3,
+                coverage_total: 5,
+                coverage_resolved: 5,
+                evidence_refs: ["evidence-a", "evidence-b"],
+                report_refs: ["report-a"],
+                action_event_total: 4,
+            },
+        }
+        const stats = {
+            ...createStats(challenge.id, 1),
+            authority: { read_seq: 42, work_total: 3, work_completed: 2, coverage_total: 5, evidence_total: 2, action_event_total: 4, closed: true, unavailable_metrics: ["usage"] },
+        }
+        const overview = buildChallengeStatsOverview([{ challenge, stats, solver_stats: [], submissions: [createSubmission({ id: "report-a", challengeId: challenge.id, solverId: "solver-a", promptName: "authorized", modelName: "unknown", asset: "https://authorized-a.example" })] }])
+
+        expect(overview.challenges_total).toBe(0)
+        expect(overview.authorized_governance).toMatchObject({ projects: 1, work_total: 3, work_completed: 2, coverage_total: 5, evidence_total: 2, action_event_total: 4, reports_total: 1, closed: 1, gaps_total: 0 })
+        expect(overview.authorized_governance.unavailable_metrics).toContain("usage")
+    })
 })
 
 function createStats(challengeId: string, submissionCount: number) {

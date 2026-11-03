@@ -55,6 +55,8 @@ const requestHostBridge = mock(async (action: string) => {
     switch (action) {
         case "challenge_memory_list":
             return { items: [globalMemory] }
+        case "challenge_board_refresh":
+            return { challenge_id: "chal-1", authoritative: true, memory: [globalMemory], ideas: [globalIdea], diagnostics: { status: "complete", watermark: 9 } }
         case "challenge_memory_add":
             return { entry: globalMemory }
         case "challenge_idea_list":
@@ -115,6 +117,17 @@ beforeEach(() => {
 })
 
 describe("challenge observer board tools", () => {
+    test("board_refresh queries the host authority and returns the refreshed board", async () => {
+        const tool = getTool("board_refresh")
+
+        const result = await tool.execute("tool-1", {})
+
+        expect(requestHostBridge).toHaveBeenCalledWith("challenge_board_refresh", {})
+        expect(result.details).toMatchObject({ authoritative: true, diagnostics: { watermark: 9 } })
+        expect(result.content[0].text).toContain("global evidence")
+        expect(result.content[0].text).toContain("global idea")
+    })
+
     test("memory_add writes solver local memory without publishing by default", async () => {
         const tool = getTool("memory_add")
 

@@ -100,11 +100,11 @@ Commands have optional `id`. Responses include matching `id`. Events (streaming)
 | 02 | custom-model | `getModel()`, `modelRegistry.find()`, `getAvailable()` |
 | 03 | custom-prompt | `systemPromptOverride`, `appendSystemPromptOverride` |
 | 04 | skills | `skillsOverride`, `createSyntheticSourceInfo()` |
-| 05 | tools | `codingTools`, `readOnlyTools`, factory functions with custom cwd |
+| 05 | tools | tool-name allowlists and factory functions with custom cwd |
 | 06 | extensions | `additionalExtensionPaths`, `extensionFactories` inline |
 | 07 | context-files | `agentsFilesOverride` for AGENTS.md discovery |
 | 08 | prompt-templates | `promptsOverride()`, custom `PromptTemplate` objects |
-| 09 | api-keys-oauth | `AuthStorage.create()`, `setRuntimeApiKey()` |
+| 09 | api-keys-oauth | `ModelRuntime.create()`, `setRuntimeApiKey()` |
 | 10 | settings | `SettingsManager.create/inMemory`, `applyOverrides()` |
 | 11 | sessions | 4 modes: inMemory, create, continueRecent, open |
 | 12 | full-control | Custom ResourceLoader impl, `createExtensionRuntime()` |

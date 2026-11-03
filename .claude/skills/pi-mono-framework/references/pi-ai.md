@@ -1,6 +1,6 @@
 # pi-ai — LLM Provider Abstraction
 
-Package: `@mariozechner/pi-ai` v0.62.0, located at `packages/ai/`.
+Package: `@earendil-works/pi-ai` v1.4.0, located at `packages/ai/`.
 
 ## Provider Registry
 
@@ -108,7 +108,7 @@ interface Context {
 ## Tool Schema (TypeBox)
 
 ```typescript
-import { Type, type Static, type TSchema } from "@sinclair/typebox"
+import { Type, type Static, type TSchema } from "typebox"
 
 interface Tool<TParameters extends TSchema> {
   name: string

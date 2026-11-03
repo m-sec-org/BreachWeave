@@ -1,5 +1,5 @@
 import { createElement, useEffect, useRef } from "react"
-import type { AgentMessage } from "@mariozechner/pi-agent-core"
+import type { AgentMessage } from "@earendil-works/pi-agent-core"
 import "./official/message-list-element"
 import "./official/console-block"
 import type { RuntimeThreadView } from "./types"

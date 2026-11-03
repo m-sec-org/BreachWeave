@@ -1,4 +1,4 @@
-import type { AgentSessionEvent } from "@mariozechner/pi-coding-agent"
+import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent"
 import { createSolverSession, createSubagentSession } from "./session"
 export { runSolverRpc } from "./rpc/rpc-server"
 

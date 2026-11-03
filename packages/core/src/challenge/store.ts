@@ -1,6 +1,8 @@
 import { mkdir, readdir, rename, rm, stat } from "fs/promises"
 import { dirname, join, resolve, sep } from "path"
 import { TCH_AGENT_HOME_DIR } from "../config/index"
+import { deriveCompositeProjectKey, validateProject } from "../project/types"
+import type { CompetitionProvider, CompositeProjectKey, MemoryMode, Project, ProjectMode } from "../project/types"
 import { CHALLENGE_ENV_DIR, CHALLENGE_ENV_ARCHIVE_DIR } from "./env"
 
 export const DEFAULT_CHALLENGE_DIR = resolve(TCH_AGENT_HOME_DIR, "challenge")
@@ -8,6 +10,13 @@ export const ARCHIVE_CHALLENGE_DIR = resolve(TCH_AGENT_HOME_DIR, "archive_challe
 
 export interface ChallengeRecord {
     id: string
+    project?: Project
+    /** Opaque host-derived identity. Legacy records intentionally have none. */
+    project_id?: CompositeProjectKey
+    project_classification?: "trusted" | "legacy_unclassified"
+    mode?: ProjectMode
+    provider?: CompetitionProvider
+    memory_mode?: MemoryMode
     name: string
     description: string
     created_at?: string
@@ -24,6 +33,21 @@ export interface ChallengeRecord {
     instance_status: string
     planner_status?: "starting" | "running" | "stop" | "disabled"
     entrypoint: string[] | null
+    /** Disposable metadata derived from Taric, never accepted as authorization. */
+    authority_projection?: {
+        source: "canonical_taric_records"
+        read_seq: number
+        lifecycle_mode: "dual_write" | "taric_projection"
+        closed: boolean
+        can_close: boolean
+        gaps: unknown[]
+        work_total: number
+        coverage_total: number
+        coverage_resolved: number
+        evidence_refs: string[]
+        report_refs: string[]
+        action_event_total: number
+    }
 }
 
 export interface ChallengeAssetRecord {
@@ -39,6 +63,9 @@ export interface ChallengeAssetsRecord {
 
 export interface CreateChallengeInput {
     name: string
+    project?: Project
+    /** Explicit opt-out from the default taric_best_effort project binding on local deployments. */
+    memory_mode?: "legacy_local"
     description?: string
     assets_url?: string | string[] | null
     assets_ip?: string | string[] | null
@@ -55,21 +82,31 @@ export interface ChallengeInfoRecord extends ChallengeRecord {
 export interface ChallengeAttemptLogRecord {
     id: string
     challenge_id: string
+    project_id?: string
     solver_id: string
     prompt_name: string
     task: string
     created_at: string
 }
 
+export interface ChallengeTestResult {
+    test_item: string
+    status: "completed" | "blocked"
+    evidence: string
+}
+
 export interface ChallengeSubmissionLogRecord {
     id: string
     challenge_id: string
+    project_id?: string
     solver_id?: string
     prompt_name?: string
     model_name?: string
     asset_hash: string
     asset: string
     report: string
+    test_results?: ChallengeTestResult[]
+    discoveries?: string[]
     created_at: string
 }
 
@@ -300,6 +337,18 @@ export function getChallengeDisplayName(challenge: Pick<ChallengeRecord, "id" | 
 }
 
 export function normalizeChallengeRecord(record: ChallengeRecord): ChallengeRecord {
+    const project = record.project === undefined ? undefined : validateProject(record.project)
+    if (!project && record.project_id) {
+        throw new Error("project_id requires a validated project identity")
+    }
+    const projectId = project ? deriveCompositeProjectKey(project) : undefined
+    if (projectId && record.project_id && record.project_id !== projectId) {
+        throw new Error("project_id does not match the host-derived project identity")
+    }
+    // A present validated project binding is the only source of trust; the API
+    // sync round-trips records without it and must never downgrade or freeze
+    // the classification of a host-bound project.
+    const projectClassification = project ? "trusted" : "legacy_unclassified"
     const name = getChallengeDisplayName(record)
     const existingUrls = readAssetsGroup(record.assets, "urls")
     const existingIps = readAssetsGroup(record.assets, "ips")
@@ -314,6 +363,12 @@ export function normalizeChallengeRecord(record: ChallengeRecord): ChallengeReco
 
     return {
         ...record,
+        project,
+        project_id: projectId,
+        project_classification: projectClassification,
+        mode: project?.mode ?? "competition",
+        provider: project?.mode === "competition" ? project.provider : project ? undefined : "local_practice",
+        memory_mode: project?.memory_mode ?? "legacy_local",
         name,
         title: optionalText(record.title) ?? name,
         description: record.description ?? "",
@@ -339,6 +394,7 @@ export function createChallengeRecord(input: CreateChallengeInput & { id: string
 
     return normalizeChallengeRecord({
         id: requireText(input.id, "id"),
+        ...(input.project === undefined ? {} : { project: validateProject(input.project) }),
         name,
         title: name,
         description: input.description?.trim() ?? "",
@@ -384,13 +440,14 @@ export async function saveChallengeRecord(rootDir: string, challenge: ChallengeR
 
 export async function appendChallengeAttemptLog(
     rootDir: string,
-    input: { challengeId: string; solverId: string; promptName: string; task: string },
+    input: { challengeId: string; projectId?: string; solverId: string; promptName: string; task: string },
 ): Promise<ChallengeAttemptLogRecord> {
     const challengeId = requireText(input.challengeId, "challengeId")
     await ensureChallengeDirs(rootDir, challengeId)
     const record: ChallengeAttemptLogRecord = {
         id: createLogId("attempt"),
         challenge_id: challengeId,
+        ...(input.projectId ? { project_id: input.projectId } : {}),
         solver_id: requireText(input.solverId, "solverId"),
         prompt_name: requireText(input.promptName, "promptName"),
         task: requireText(input.task, "task"),
@@ -402,26 +459,29 @@ export async function appendChallengeAttemptLog(
 
 export async function appendChallengeSubmissionLog(
     rootDir: string,
-    input: { challengeId: string; solverId?: string; promptName?: string; modelName?: string; assetHash: string; asset: string; report: string },
+    input: { challengeId: string; projectId?: string; solverId?: string; promptName?: string; modelName?: string; assetHash: string; asset: string; report: string; testResults?: ChallengeTestResult[]; discoveries?: string[] },
 ): Promise<ChallengeSubmissionLogRecord> {
     const challengeId = requireText(input.challengeId, "challengeId")
     await ensureChallengeDirs(rootDir, challengeId)
     const record: ChallengeSubmissionLogRecord = {
         id: createLogId("submission"),
         challenge_id: challengeId,
+        ...(input.projectId ? { project_id: input.projectId } : {}),
         solver_id: typeof input.solverId === "string" && input.solverId.trim() ? input.solverId.trim() : undefined,
         prompt_name: typeof input.promptName === "string" && input.promptName.trim() ? input.promptName.trim() : undefined,
         model_name: typeof input.modelName === "string" && input.modelName.trim() ? input.modelName.trim() : undefined,
         asset_hash: requireText(input.assetHash, "assetHash"),
         asset: requireText(input.asset, "asset"),
         report: requireText(input.report, "report"),
+        ...(input.testResults ? { test_results: input.testResults } : {}),
+        ...(input.discoveries ? { discoveries: input.discoveries } : {}),
         created_at: nowIso(),
     }
     await atomicWriteJson(join(submissionLogsDir(rootDir, challengeId), `${Date.now()}-${record.id}.json`), record)
     return record
 }
 
-export async function listChallengeAttemptLogs(rootDir: string, challengeId: string): Promise<ChallengeAttemptLogRecord[]> {
+export async function listChallengeAttemptLogs(rootDir: string, challengeId: string, projectId?: string): Promise<ChallengeAttemptLogRecord[]> {
     const id = requireText(challengeId, "challengeId")
     const dir = attemptLogsDir(rootDir, id)
     let files: string[] = []
@@ -431,10 +491,10 @@ export async function listChallengeAttemptLogs(rootDir: string, challengeId: str
         return []
     }
     const items = await Promise.all(files.map((file) => readJsonFile<ChallengeAttemptLogRecord>(join(dir, file))))
-    return items.filter((item): item is ChallengeAttemptLogRecord => Boolean(item))
+    return items.filter((item): item is ChallengeAttemptLogRecord => Boolean(item) && (projectId === undefined || item?.project_id === projectId))
 }
 
-export async function listChallengeSubmissionLogs(rootDir: string, challengeId: string): Promise<ChallengeSubmissionLogRecord[]> {
+export async function listChallengeSubmissionLogs(rootDir: string, challengeId: string, projectId?: string): Promise<ChallengeSubmissionLogRecord[]> {
     const id = requireText(challengeId, "challengeId")
     const dir = submissionLogsDir(rootDir, id)
     let files: string[] = []
@@ -444,7 +504,7 @@ export async function listChallengeSubmissionLogs(rootDir: string, challengeId: 
         return []
     }
     const items = await Promise.all(files.map((file) => readJsonFile<ChallengeSubmissionLogRecord>(join(dir, file))))
-    return items.filter((item): item is ChallengeSubmissionLogRecord => Boolean(item))
+    return items.filter((item): item is ChallengeSubmissionLogRecord => Boolean(item) && (projectId === undefined || item?.project_id === projectId))
 }
 
 export async function readChallengeRecord(rootDir: string, challengeId: string): Promise<ChallengeInfoRecord | undefined> {
@@ -477,6 +537,7 @@ export async function listChallengeRecords(rootDir: string): Promise<ChallengeIn
 }
 
 export function computeChallengeCompleted(challenge: ChallengeRecord | undefined): boolean {
+    if (challenge?.project?.mode === "authorized_pentest" || challenge?.mode === "authorized_pentest") return false
     if (!challenge) return false
     const assets = [...(challenge.assets?.urls ?? []), ...(challenge.assets?.ips ?? [])]
     return assets.length > 0 && assets.every((item) => item.scanned === true)

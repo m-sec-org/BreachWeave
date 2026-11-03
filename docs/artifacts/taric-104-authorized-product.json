@@ -1,0 +1,54 @@
+{
+  "format": "breachweave-authorized-product-smoke/1",
+  "generatedAt": "2026-11-03T01:48:50.150Z",
+  "sourceCommit": "1c466f4d8ad8f775f98bf867453b81230469287a",
+  "status": "passed",
+  "checks": [
+    {
+      "id": "solver_prepares_complete_pinned_taric_context",
+      "passed": true
+    },
+    {
+      "id": "solver_heartbeat_renews_canonical_workrun",
+      "passed": true
+    },
+    {
+      "id": "fresh_provider_rebuilds_work_gaps_evidence_and_close_without_caches",
+      "passed": true
+    },
+    {
+      "id": "fresh_provider_recovers_active_checkpoint_from_taric",
+      "passed": true
+    },
+    {
+      "id": "planner_context_rebuilds_from_authority",
+      "passed": true
+    },
+    {
+      "id": "explicit_solver_completion_is_canonical",
+      "passed": true
+    },
+    {
+      "id": "stale_solver_completion_is_rejected",
+      "passed": true
+    },
+    {
+      "id": "report_index_and_close_rebuild_after_provider_restart",
+      "passed": true
+    },
+    {
+      "id": "closed_engagement_blocks_solver_preparation",
+      "passed": true
+    }
+  ],
+  "metrics": {
+    "passed": 9,
+    "total": 9
+  },
+  "productionEvidence": false,
+  "userConfigurationRead": false,
+  "targetTrafficGenerated": false,
+  "limitations": [
+    "Embedded local SQLite and deterministic host fixture; no external model, independent reviewer, production or physical-host evidence."
+  ]
+}

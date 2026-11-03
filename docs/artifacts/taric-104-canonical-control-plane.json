@@ -1,0 +1,133 @@
+{
+  "reportVersion": "breachweave-canonical-control-plane-fixture/2",
+  "generatedAt": "2026-11-02T05:18:41.431Z",
+  "sourceCommit": "1c466f4d8ad8f775f98bf867453b81230469287a",
+  "evidenceClass": "local_source_dist_sqlite_embedded_host_operator_loopback",
+  "assertions": [
+    {
+      "id": "canonical_scope_revision_binds_verified_roe",
+      "passed": true
+    },
+    {
+      "id": "bootstrap_admits_resource_revision_work_cells_and_manifest",
+      "passed": true
+    },
+    {
+      "id": "bootstrap_replay_preserves_canonical_ids",
+      "passed": true
+    },
+    {
+      "id": "coverage_complete_fixed_domain_pages_preserve_watermark",
+      "passed": true
+    },
+    {
+      "id": "untested_manifest_gate_cannot_close",
+      "passed": true
+    },
+    {
+      "id": "checkpoint_persists_immutable_scope_and_recovery_locator",
+      "passed": true
+    },
+    {
+      "id": "target_auth_round_trip_injects_only_into_actual_loopback_connection",
+      "passed": true
+    },
+    {
+      "id": "action_audit_is_complete_pinned_and_has_observed_socket_provenance",
+      "passed": true
+    },
+    {
+      "id": "stale_generation_action_is_rejected_before_a_second_connection",
+      "passed": true
+    },
+    {
+      "id": "non_idempotent_capture_duplicates_remain_identifiable_l0_candidates",
+      "passed": true
+    },
+    {
+      "id": "capture_validation_diagnostics_are_bounded_and_payload_free",
+      "passed": true
+    },
+    {
+      "id": "fresh_host_discovers_run_and_restores_checkpoint_without_local_map",
+      "passed": true
+    },
+    {
+      "id": "explicit_not_applicable_reasons_produce_passing_complete_gate",
+      "passed": true
+    },
+    {
+      "id": "report_snapshot_commit_replay_preserves_canonical_identity",
+      "passed": true
+    },
+    {
+      "id": "close_rejects_stale_authority_watermark",
+      "passed": true
+    },
+    {
+      "id": "canonical_close_atomically_completes_engagement",
+      "passed": true
+    },
+    {
+      "id": "new_process_reconstructs_scope_work_checkpoint_cells_report_and_close",
+      "passed": true
+    },
+    {
+      "id": "new_process_recovers_target_auth_and_identical_action_audit",
+      "passed": true
+    },
+    {
+      "id": "reopen_appends_a_decision_and_preserves_close_history",
+      "passed": true
+    }
+  ],
+  "metrics": {
+    "passed": 19,
+    "total": 19
+  },
+  "acceptanceProfile": "local_development",
+  "authorityProfile": "single_host_sqlite",
+  "restartMethod": "fresh_recovery_subprocess_from_authority",
+  "coverage": {
+    "canonicalScopeRoe": "passed",
+    "targetAuthArtifactRoundTrip": "passed",
+    "checkpointRecovery": "passed",
+    "actionAuditRecovery": "passed",
+    "connectionTimeDecision": "passed",
+    "staleGenerationRejection": "passed",
+    "gateWatermark": "passed",
+    "supportedCapture": "passed",
+    "duplicateHandling": "non_idempotent_capture_produces_distinct_candidates; duplicate idempotent proposal replay preserves canonical identity",
+    "boundedValidationDiagnostics": "passed",
+    "challengeFileProjectionRebuild": "not_exercised_by_this_fixture",
+    "independentL2Review": "unverified",
+    "realGateway": "unverified"
+  },
+  "validationDiagnostics": [
+    {
+      "code": "invalid_uuid",
+      "field": "observation.resource_ref",
+      "message": "must be a resolved Taric Resource UUID"
+    },
+    {
+      "code": "sensitive_value",
+      "field": "observation.statement",
+      "message": "sensitive value is not accepted"
+    },
+    {
+      "code": "invalid_value",
+      "field": "observation.status",
+      "message": "must remain proposed until trusted admission"
+    }
+  ],
+  "productionEvidence": false,
+  "userConfigurationRead": false,
+  "targetTrafficGenerated": true,
+  "targetTrafficProfile": "isolated_loopback_Bun_serve_only",
+  "temporaryStateRemoved": true,
+  "limitations": [
+    "Fixture review/admission is synthetic L1; no independent L2 or production reviewer identity is claimed.",
+    "This fixture creates no product challenge/session/report-index files, so deleting those projections is a separate acceptance scenario.",
+    "The subprocess rebuilds authority state while the original host exists; this is process reconstruction, not a power-loss durability claim."
+  ]
+}

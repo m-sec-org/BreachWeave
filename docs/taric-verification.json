@@ -1,0 +1,51 @@
+{
+  "format": "breachweave-taric-verification/1",
+  "generatedAt": "2026-10-30T06:13:05.870Z",
+  "selectedProfile": "authenticated_proxy",
+  "status": "passed",
+  "sourceRevision": "6957a55f15e0d585f4b728c831021a34f7e02891",
+  "worktree": {
+    "dirtyPathCount": 197,
+    "digest": "sha256:a468cf3703ede048d4f587da519f7a31122399b3bb117600baadc95874963e65"
+  },
+  "checks": {
+    "typecheck": {
+      "exitCode": 0,
+      "command": "bun run typecheck"
+    },
+    "focused": {
+      "exitCode": 0,
+      "command": "bun test packages/core/src/challenge packages/core/src/runtime packages/core/src/taric packages/core/src/project"
+    },
+    "core": {
+      "exitCode": 0,
+      "command": "bun test packages/core"
+    },
+    "build": {
+      "exitCode": 0,
+      "command": "bun run scripts/build.ts bun-darwin-x64 /var/folders/lt/32z29b790x1gnscj2881bg7w0000gn/T/breachweave-taric-verification-PvkZqb/tch-agent"
+    }
+  },
+  "artifactDigests": {
+    "@taric/schemas": {
+      "version": "1.0.3",
+      "integrity": "sha512-h6kz13+NmItNTDzfYGy8M/XDUYizao7LCrVJUvzJJnLagLN4UT6UDBb89laNpzFBkUibXQxLGqjb1gkA6aih/g=="
+    },
+    "@taric/core": {
+      "version": "1.0.3",
+      "integrity": "sha512-0WpFIW429Vw38ZMNR/E8jxQWJaMo0ht9Ub0MGvmn7ezpktYfbObftgF3JoR2rq7JmHNJjrJOmhJFQhxUMxbK3w=="
+    },
+    "@taric/driver-bun-sqlite": {
+      "version": "1.0.3",
+      "integrity": "sha512-IWg1zo84aTKKxIwPHd11svfI9QHDqS6hQoycSMqOkF61YPMWDYvCt8HepvJa6aS/bwhcG1izfuNWA8UBIhIzfA=="
+    },
+    "@taric/cli": {
+      "version": "1.0.3",
+      "integrity": "sha512-i3PNu++3i0zL89BaxN/h3IO8ELJltTym5biDMKSFCJzP9skIQIBi4KyzI/+SRQmVB0rOt3rOoqqbdVopOPGjrQ=="
+    },
+    "@taric/mcp": {
+      "version": "1.0.3",
+      "integrity": "sha512-dToa254DywEIZdtAHMvMpjdBljwnQktg4kxv9qYrgw2y2FwVRPax21r++7uLzJaoM+hsKXuJDk/Ld83kGgJi4Q=="
+    }
+  }
+}

@@ -1,0 +1,74 @@
+{
+  "reportVersion": "breachweave-taric-artifact-governance/1",
+  "generatedAt": "2026-11-03T01:58:21.195Z",
+  "evidenceClass": "local_dist_sqlite_fixture",
+  "sourceCommit": "1c466f4d8ad8f775f98bf867453b81230469287a",
+  "runtimeSourceProvenance": "unverified",
+  "runtimeEntryDigests": {
+    "core": "sha256:ffb5131b3ac71fdeafa30496304985ea76530e3a37b8baef615e26627005a7f7",
+    "driver": "sha256:b9cfbc610ef89365ac34401ac8c07c2434b603c89be1eba66cd0ae2ea81e96cd"
+  },
+  "authority": "single_host_sqlite",
+  "artifactDeploymentProfile": "local_process_crash",
+  "restartMethod": "clean_authority_close_reopen",
+  "powerLossDurabilityClaimed": false,
+  "productionEvidence": false,
+  "targetTrafficGenerated": false,
+  "userConfigurationRead": false,
+  "temporaryStateRemoved": true,
+  "assertions": [
+    {
+      "id": "run_bound_session_uses_authority_fence",
+      "passed": true
+    },
+    {
+      "id": "ordinary_evidence_report_and_target_auth_are_taric_stored",
+      "passed": true
+    },
+    {
+      "id": "artifact_alone_is_not_canonical_evidence",
+      "passed": true
+    },
+    {
+      "id": "canonical_evidence_requires_domain_proposal_and_admission",
+      "passed": true
+    },
+    {
+      "id": "host_redaction_precedes_opaque_storage",
+      "passed": true
+    },
+    {
+      "id": "target_auth_denied_on_ordinary_content_channel",
+      "passed": true
+    },
+    {
+      "id": "model_raw_content_denied_by_authority",
+      "passed": true
+    },
+    {
+      "id": "ordinary_evidence_report_and_auth_round_trip_after_sqlite_reopen",
+      "passed": true
+    },
+    {
+      "id": "run_completion_fences_already_staged_artifact_commit",
+      "passed": true
+    },
+    {
+      "id": "staged_content_never_enters_committed_catalog",
+      "passed": true
+    },
+    {
+      "id": "stale_run_cannot_publish_ordinary_artifact",
+      "passed": true
+    }
+  ],
+  "metrics": {
+    "passed": 11,
+    "total": 11
+  },
+  "limitations": [
+    "Pinned checkout and selected dist entry digests identify fixture inputs; source-to-dist dependency provenance is unverified.",
+    "Synthetic local admission is L1, not independent L2 review or production conformance.",
+    "Physical Artifact deletion requires an explicit deployment adapter; upstream opaque storage is not a deletion API."
+  ]
+}

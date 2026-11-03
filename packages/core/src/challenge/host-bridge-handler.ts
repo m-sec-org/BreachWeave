@@ -1,6 +1,7 @@
 import type { ChallengeManager } from "./manager"
-import { CHALLENGE_ENV_CHALLENGE_ID } from "./env"
+import { AUTHORIZED_SOLVER_ENV, CHALLENGE_ENV_CHALLENGE_ID, CHALLENGE_ENV_PROJECT_ID } from "./env"
 import type { IdeaStatus, MemoryKind } from "./memory"
+import type { ChallengeTestResult } from "./store"
 import type { HostBridgeHandleContext, HostBridgeHandleResult, HostBridgeHandler, SolverInstance } from "../runtime/types"
 
 function getObjectValue(value: unknown): Record<string, unknown> {
@@ -29,6 +30,30 @@ function getStringArray(data: Record<string, unknown>, key: string): string[] {
     return value.filter((item): item is string => typeof item === "string")
 }
 
+function getOptionalTestResults(data: Record<string, unknown>): ChallengeTestResult[] | undefined {
+    const value = data.test_results
+    if (value === undefined) return
+    if (!Array.isArray(value)) throw new Error("test_results must be an array")
+    return value.map((item) => {
+        if (!item || typeof item !== "object" || Array.isArray(item)) throw new Error("test_results items must be objects")
+        const result = item as Record<string, unknown>
+        const testItem = getRequiredString(result, "test_item")
+        const evidence = getRequiredString(result, "evidence")
+        if (result.status !== "completed" && result.status !== "blocked") throw new Error("test_results status must be completed or blocked")
+        return { test_item: testItem, status: result.status, evidence }
+    })
+}
+
+function getOptionalDiscoveries(data: Record<string, unknown>): string[] | undefined {
+    const value = data.discoveries
+    if (value === undefined) return
+    if (!Array.isArray(value)) throw new Error("discoveries must be an array")
+    return value.map((item) => {
+        if (typeof item !== "string" || !item.trim()) throw new Error("discoveries items must be non-empty strings")
+        return item.trim()
+    })
+}
+
 function getMemoryKind(data: Record<string, unknown>): MemoryKind {
     const value = getRequiredString(data, "kind")
     if (value === "fact" || value === "evidence" || value === "failure" || value === "note" || value === "hint") {
@@ -52,6 +77,13 @@ function getRequiredChallengeId(getSolverEnvValue: (key: string) => string | und
         throw new Error(`${CHALLENGE_ENV_CHALLENGE_ID} is required for challenge actions`)
     }
     return challengeId
+}
+
+async function assertBoundProject(challengeManager: ChallengeManager, challengeId: string, getSolverEnvValue: (key: string) => string | undefined): Promise<void> {
+    const assertBinding = (challengeManager as Partial<ChallengeManager>).assertSolverProjectBinding
+    if (typeof assertBinding === "function") {
+        await assertBinding.call(challengeManager, challengeId, getSolverEnvValue(CHALLENGE_ENV_PROJECT_ID))
+    }
 }
 
 function getSolverPromptName(solver?: SolverInstance): string | undefined {
@@ -112,12 +144,14 @@ async function handleChallengeAction(
     switch (action) {
         case "challenge_get_state": {
             const challengeId = getRequiredChallengeId(getSolverEnvValue)
+            await assertBoundProject(challengeManager, challengeId, getSolverEnvValue)
             const challenge = await challengeManager.getChallenge(challengeId)
             const isCompleted = await challengeManager.isChallengeCompleted(challengeId)
             return { handled: true, data: { challenge_id: challengeId, challenge, is_completed: isCompleted } }
         }
         case "challenge_get_hint": {
             const challengeId = getRequiredChallengeId(getSolverEnvValue)
+            await assertBoundProject(challengeManager, challengeId, getSolverEnvValue)
             const challenge = await challengeManager.getChallenge(challengeId)
             const cachedHint = challenge?.hint_content?.trim()
             if (cachedHint) {
@@ -137,51 +171,75 @@ async function handleChallengeAction(
         }
         case "challenge_submit_report": {
             const challengeId = getRequiredChallengeId(getSolverEnvValue)
+            await assertBoundProject(challengeManager, challengeId, getSolverEnvValue)
             const assetHash = getRequiredString(data, "asset_hash")
             const report = getRequiredString(data, "report")
+            const testResults = getOptionalTestResults(data)
+            const discoveries = getOptionalDiscoveries(data)
             const result = await challengeManager.submitReport(challengeId, {
                 assetHash,
                 report,
                 solverId,
                 promptName: getSolverPromptName(getSolver?.()),
                 modelName: getSolverModelName((await getSolverStartup?.()) ?? undefined),
+                ...(testResults !== undefined ? { testResults } : {}),
+                ...(discoveries !== undefined ? { discoveries } : {}),
             })
             return { handled: true, data: { challenge_id: challengeId, ...result } }
         }
         case "challenge_is_completed": {
             const challengeId = getRequiredChallengeId(getSolverEnvValue)
+            await assertBoundProject(challengeManager, challengeId, getSolverEnvValue)
             const isCompleted = await challengeManager.isChallengeCompleted(challengeId)
-            return { handled: true, data: { challenge_id: challengeId, is_completed: isCompleted } }
+            const solverTaskCompleted = await challengeManager.isSolverTaskCompleted(challengeId, solverId)
+            return { handled: true, data: { challenge_id: challengeId, is_completed: isCompleted, solver_task_completed: solverTaskCompleted } }
         }
         case "challenge_memory_list": {
             const challengeId = getRequiredChallengeId(getSolverEnvValue)
+            await assertBoundProject(challengeManager, challengeId, getSolverEnvValue)
             const items = await challengeManager.listMemory(challengeId)
             return { handled: true, data: { challenge_id: challengeId, items } }
         }
+        case "challenge_board_refresh": {
+            const challengeId = getRequiredChallengeId(getSolverEnvValue)
+            await assertBoundProject(challengeManager, challengeId, getSolverEnvValue)
+            const board = await challengeManager.readMemoryBoard(challengeId)
+            return {
+                handled: true,
+                data: {
+                    challenge_id: challengeId,
+                    authoritative: true,
+                    ...board,
+                },
+            }
+        }
         case "challenge_memory_add": {
             const challengeId = getRequiredChallengeId(getSolverEnvValue)
-            const source = getOptionalString(data, "source") ?? `observer:${solverId}`
+            await assertBoundProject(challengeManager, challengeId, getSolverEnvValue)
             const entry = await challengeManager.appendMemory({
                 challengeId,
                 kind: getMemoryKind(data),
                 content: getRequiredString(data, "content"),
                 refs: getStringArray(data, "refs"),
-                source,
+                source: `observer:${solverId}`,
             })
             return { handled: true, data: { challenge_id: challengeId, entry } }
         }
         case "challenge_idea_list": {
             const challengeId = getRequiredChallengeId(getSolverEnvValue)
+            await assertBoundProject(challengeManager, challengeId, getSolverEnvValue)
             const items = await challengeManager.listIdeas(challengeId)
             return { handled: true, data: { challenge_id: challengeId, items } }
         }
         case "challenge_idea_search": {
             const challengeId = getRequiredChallengeId(getSolverEnvValue)
+            await assertBoundProject(challengeManager, challengeId, getSolverEnvValue)
             const items = await challengeManager.searchIdeas(challengeId, getRequiredString(data, "query"))
             return { handled: true, data: { challenge_id: challengeId, items } }
         }
         case "challenge_idea_add": {
             const challengeId = getRequiredChallengeId(getSolverEnvValue)
+            await assertBoundProject(challengeManager, challengeId, getSolverEnvValue)
             const status = getOptionalIdeaStatus(data)
             const result = await challengeManager.addIdea(challengeId, {
                 content: getRequiredString(data, "content"),
@@ -189,6 +247,45 @@ async function handleChallengeAction(
                 ...(data.result !== undefined ? { result: getOptionalString(data, "result") ?? "" } : {}),
             })
             return { handled: true, data: { challenge_id: challengeId, ...result } }
+        }
+        case "challenge_authorized_http": {
+            const challengeId = getRequiredChallengeId(getSolverEnvValue)
+            await assertBoundProject(challengeManager, challengeId, getSolverEnvValue)
+            const workRunId = getRequiredString({ workRunId: getSolverEnvValue("TCH_TARIC_WORK_RUN_ID") }, "workRunId")
+            const resourceId = getRequiredString({ resourceId: getSolverEnvValue("TCH_TARIC_RESOURCE_ID") }, "resourceId")
+            const ownerAgentId = getRequiredString({ ownerAgentId: getSolverEnvValue("TCH_TARIC_OWNER_AGENT_ID") }, "ownerAgentId")
+            const generationText = getRequiredString({ generation: getSolverEnvValue("TCH_TARIC_WORK_GENERATION") }, "generation")
+            const generation = Number(generationText)
+            if (getSolverEnvValue(AUTHORIZED_SOLVER_ENV) !== "1" || ownerAgentId !== solverId || !Number.isSafeInteger(generation) || generation < 1) throw new Error("authorized Solver runtime binding is invalid")
+            const result = await challengeManager.executeAuthorizedHttpAction({
+                challengeId,
+                workRunId,
+                generation,
+                agentId: solverId,
+                resourceId,
+                request: {
+                    url: getRequiredString(data, "url"),
+                    rationale: getRequiredString(data, "rationale"),
+                    ...(typeof data.method === "string" ? { method: data.method as "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS" } : {}),
+                    ...(data.headers && typeof data.headers === "object" && !Array.isArray(data.headers) ? { headers: data.headers as Record<string, string> } : {}),
+                    ...(typeof data.body === "string" ? { body: data.body } : {}),
+                },
+            })
+            return { handled: true, data: result }
+        }
+        case "authorized_work_renew":
+        case "authorized_work_finish": {
+            const challengeId = getRequiredChallengeId(getSolverEnvValue)
+            await assertBoundProject(challengeManager, challengeId, getSolverEnvValue)
+            const workRunId = getRequiredString({ workRunId: getSolverEnvValue("TCH_TARIC_WORK_RUN_ID") }, "workRunId")
+            const resourceId = getRequiredString({ resourceId: getSolverEnvValue("TCH_TARIC_RESOURCE_ID") }, "resourceId")
+            const ownerAgentId = getRequiredString({ ownerAgentId: getSolverEnvValue("TCH_TARIC_OWNER_AGENT_ID") }, "ownerAgentId")
+            const generation = Number(getRequiredString({ generation: getSolverEnvValue("TCH_TARIC_WORK_GENERATION") }, "generation"))
+            if (getSolverEnvValue(AUTHORIZED_SOLVER_ENV) !== "1" || ownerAgentId !== solverId || !Number.isSafeInteger(generation) || generation < 1) throw new Error("authorized Solver runtime binding is invalid")
+            const input = { challengeId, workRunId, generation, agentId: solverId, resourceId }
+            if (action === "authorized_work_renew") await challengeManager.renewAuthorizedWorkRun(input)
+            else await challengeManager.finishAuthorizedWorkRun(input)
+            return { handled: true, data: { ok: true } }
         }
         default:
             return { handled: false }

@@ -50,8 +50,8 @@ Types → Config → Service → Runtime → UI
 
 ## SDK 依赖
 
-- `@mariozechner/pi-coding-agent` — Agent session、工具定义、资源加载
-- `@mariozechner/pi-ai` — Model/Api 类型、Provider 注册表
+- `@earendil-works/pi-coding-agent` — Agent session、工具定义、资源加载
+- `@earendil-works/pi-ai` — Model/Api 类型、Provider 注册表
 - `pi-mcp-adapter` — MCP 配置加载
 
 ## Bun 偏好
@@ -115,7 +115,7 @@ import * as prompts from "./prompts"
 import * as mcp from "./mcp"
 
 // 3. SDK 类型 re-export 用 `export type`
-export type { Skill, ToolDefinition } from "@mariozechner/pi-coding-agent"
+export type { Skill, ToolDefinition } from "@earendil-works/pi-coding-agent"
 ```
 
 ### 函数风格

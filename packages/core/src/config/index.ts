@@ -1,19 +1,20 @@
 import { resolve } from "path"
 import { mkdir } from "fs/promises"
 import { homedir } from "os"
-import { AuthStorage, ModelRegistry, SettingsManager, DefaultResourceLoader, SessionManager, createAgentSession } from "@mariozechner/pi-coding-agent"
-import type { Skill, ToolDefinition, CreateAgentSessionOptions, ExtensionFactory } from "@mariozechner/pi-coding-agent"
+import { ModelRegistry, ModelRuntime, SettingsManager, DefaultResourceLoader, SessionManager, createAgentSession } from "@earendil-works/pi-coding-agent"
+import type { Skill, ToolDefinition, CreateAgentSessionOptions, ExtensionFactory } from "@earendil-works/pi-coding-agent"
 import { createMcpAdapter } from "pi-mcp-adapter"
-import type { ThinkingLevel } from "@mariozechner/pi-agent-core"
-import { getProviders, getApiProviders, supportsXhigh, completeSimple } from "@mariozechner/pi-ai"
-import type { Model, Api, KnownProvider, Context, ThinkingLevel as PiAiThinkingLevel } from "@mariozechner/pi-ai"
+import type { ThinkingLevel } from "@earendil-works/pi-agent-core"
+import { getSupportedThinkingLevels } from "@earendil-works/pi-ai"
+import { getProviders, getApiProviders, completeSimple } from "@earendil-works/pi-ai/compat"
+import type { Credential, CredentialInfo, CredentialStore, AuthOperationOptions, Model, Api, KnownProvider, Context, ThinkingLevel as PiAiThinkingLevel } from "@earendil-works/pi-ai"
 import * as prompts from "./prompts/index"
 import type { PromptFile } from "./prompts/index"
 import { customProviders } from "./providers/custom"
 import { discoverModelsForProvider } from "./providers/discovery"
 import type { DiscoveredModel } from "./providers/discovery"
 import type { ModelDefinition, ModelConfigEntry, ProviderPrefEntry, BuiltInProvider, ConfiguredModel } from "./providers/types"
-import { customTools, builtinToolDefinitions, builtinToolMap } from "./tools/index"
+import { customTools, builtinToolDefinitions, builtinToolNames } from "./tools/index"
 import { challengeToolNames } from "./tools/challenge-tools"
 import { createSubagentTool } from "./tools/subagent"
 import type { ToolEntry } from "./tools/index"
@@ -22,12 +23,94 @@ import type { ServerEntry, McpConfig, McpSettings } from "pi-mcp-adapter/types.j
 import { formatToolName } from "pi-mcp-adapter/types.js"
 import * as mcp from "./mcp/index"
 import type { McpServerItem, McpToolCache } from "./mcp/index"
-import type { AddResult, HostRuntimeSettings, HostPlannerSettings, HostAuthSettings, HostSettings } from "./types"
-export type { AddResult, HostRuntimeSettings, HostPlannerSettings, HostAuthSettings, HostSettings } from "./types"
+import type { AddResult, HostRuntimeSettings, HostPlannerSettings, HostAuthSettings, HostSettings, TaricHostSettings } from "./types"
+export type { AddResult, HostRuntimeSettings, HostPlannerSettings, HostAuthSettings, HostSettings, TaricHostSettings, TaricAcceptanceProfile, TaricAuthorityProfile } from "./types"
 import { CHALLENGE_ENV_CHALLENGE_ID } from "../challenge/env"
+import { AuthorizedProjectInventoryStore } from "./authorized-projects"
+import type { AuthorizedProjectBinding } from "./authorized-projects"
+export type { AuthorizedProjectBinding } from "./authorized-projects"
 
 export interface ResolvePromptSessionOptions {
     appendChallengeReportPrompt?: boolean
+    authorizedSolver?: boolean
+}
+
+/**
+ * Credentials are owned by ModelRuntime in the current Pi SDK. This adapter
+ * keeps ConfigManager's synchronous API-key methods while implementing the
+ * async CredentialStore contract consumed by ModelRuntime.
+ */
+class LocalCredentialStore implements CredentialStore {
+    private data: Record<string, Credential> = {}
+    private writeQueue: Promise<void> = Promise.resolve()
+
+    constructor(private readonly path: string) {}
+
+    async load(): Promise<void> {
+        try {
+            const file = Bun.file(this.path)
+            if (!(await file.exists())) return
+            const value = await file.json()
+            if (!value || typeof value !== "object" || Array.isArray(value)) return
+            this.data = value as Record<string, Credential>
+        } catch {
+            this.data = {}
+        }
+    }
+
+    private persist(): Promise<void> {
+        const snapshot = JSON.stringify(this.data, null, 2)
+        this.writeQueue = this.writeQueue.then(() => Bun.write(this.path, snapshot).then(() => undefined))
+        return this.writeQueue
+    }
+
+    // Legacy ConfigManager API
+    get(provider: string): Credential | undefined {
+        return this.data[provider]
+    }
+
+    set(provider: string, credential: Credential): void {
+        this.data[provider] = credential
+        void this.persist()
+    }
+
+    remove(provider: string): void {
+        delete this.data[provider]
+        void this.persist()
+    }
+
+    providerIds(): string[] {
+        return Object.keys(this.data)
+    }
+
+    async reload(): Promise<void> {
+        await this.load()
+    }
+
+    // pi-ai CredentialStore API
+    async read(provider: string, _options?: AuthOperationOptions): Promise<Credential | undefined> {
+        return this.get(provider)
+    }
+
+    async listCredentials(_options?: AuthOperationOptions): Promise<readonly CredentialInfo[]> {
+        return this.providerIds().map((providerId) => ({ providerId, type: this.data[providerId].type }))
+    }
+
+    async modify(provider: string, fn: (current: Credential | undefined) => Promise<Credential | undefined>): Promise<Credential | undefined> {
+        const next = await fn(this.get(provider))
+        if (next !== undefined) this.data[provider] = next
+        await this.persist()
+        return next
+    }
+
+    async delete(provider: string): Promise<void> {
+        delete this.data[provider]
+        await this.persist()
+    }
+
+    async list(_options?: AuthOperationOptions): Promise<readonly CredentialInfo[]> {
+        return this.listCredentials(_options)
+    }
 }
 
 function computeHash(obj: Record<string, unknown>): string {
@@ -182,6 +265,72 @@ function toPiAiThinkingLevel(value?: string): PiAiThinkingLevel | undefined {
     if (value === "minimal" || value === "low" || value === "medium" || value === "high" || value === "xhigh") return value
 }
 
+function sanitizeTaricHostSettings(value: TaricHostSettings | undefined): TaricHostSettings | undefined {
+    if (!value || typeof value !== "object") return undefined
+    const profile = value.profile === "embedded_bun" || value.profile === "authenticated_proxy" ? value.profile : undefined
+    const positiveInt = (input: unknown): number | undefined => {
+        if (typeof input !== "number" || !Number.isSafeInteger(input) || input < 0) return
+        return input
+    }
+    const text = (input: unknown): string | undefined => {
+        if (typeof input !== "string") return
+        const result = input.trim()
+        return result || undefined
+    }
+    const port = (input: unknown): number | undefined => {
+        if (typeof input !== "number" || !Number.isSafeInteger(input) || input < 1 || input > 65535) return
+        return input
+    }
+    const timeout = (input: unknown): number | undefined => {
+        if (typeof input !== "number" || !Number.isSafeInteger(input) || input < 100 || input > 30000) return
+        return input
+    }
+    const gatewayTransport = value.gatewayTransport === "https" || value.gatewayTransport === "tls_tcp" ? value.gatewayTransport : undefined
+    const engagementBoundary = value.engagementBoundary === "project_bound" || value.engagementBoundary === "shared_development" ? value.engagementBoundary : undefined
+    const acceptanceProfile = value.acceptanceProfile === "local_development" || value.acceptanceProfile === "production_hardened" ? value.acceptanceProfile : undefined
+    const authorityProfile = value.authorityProfile === "single_host_sqlite" || value.authorityProfile === "multi_host_authority" ? value.authorityProfile : undefined
+    const gatewayPathValue = text(value.gatewayPath)
+    const gatewayPath = gatewayPathValue && gatewayPathValue.startsWith("/") && !gatewayPathValue.includes("?") && !gatewayPathValue.includes("#") ? gatewayPathValue : undefined
+    return {
+        ...(typeof value.enabled === "boolean" ? { enabled: value.enabled } : {}),
+        ...(text(value.authorityPath) ? { authorityPath: text(value.authorityPath) } : {}),
+        ...(text(value.contentRoot) ? { contentRoot: text(value.contentRoot) } : {}),
+        ...(text(value.hostPrincipalId) ? { hostPrincipalId: text(value.hostPrincipalId) } : {}),
+        ...(Array.isArray(value.embeddedHostCapabilities) ? { embeddedHostCapabilities: [...new Set(value.embeddedHostCapabilities.filter((capability): capability is "admit" | "content_read" => capability === "admit" || capability === "content_read"))] } : {}),
+        ...(text(value.modelPrincipalId) ? { modelPrincipalId: text(value.modelPrincipalId) } : {}),
+        ...(profile ? { profile } : {}),
+        ...(engagementBoundary ? { engagementBoundary } : {}),
+        ...(acceptanceProfile ? { acceptanceProfile } : {}),
+        ...(authorityProfile ? { authorityProfile } : {}),
+        ...(gatewayTransport ? { gatewayTransport } : {}),
+        ...(text(value.gatewayUrl) ? { gatewayUrl: text(value.gatewayUrl) } : {}),
+        ...(text(value.gatewayHost) ? { gatewayHost: text(value.gatewayHost) } : {}),
+        ...(port(value.gatewayPort) !== undefined ? { gatewayPort: port(value.gatewayPort) } : {}),
+        ...(gatewayPath ? { gatewayPath } : {}),
+        ...(text(value.gatewayCaFile) ? { gatewayCaFile: text(value.gatewayCaFile) } : {}),
+        ...(text(value.gatewayServerName) ? { gatewayServerName: text(value.gatewayServerName) } : {}),
+        ...(text(value.gatewayTokenEnv) ? { gatewayTokenEnv: text(value.gatewayTokenEnv) } : {}),
+        ...(text(value.gatewayHostTokenEnv) ? { gatewayHostTokenEnv: text(value.gatewayHostTokenEnv) } : {}),
+        ...(text(value.gatewayModelTokenEnv) ? { gatewayModelTokenEnv: text(value.gatewayModelTokenEnv) } : {}),
+        ...(text(value.gatewayOperatorTokenEnv) ? { gatewayOperatorTokenEnv: text(value.gatewayOperatorTokenEnv) } : {}),
+        ...(text(value.gatewayOperatorPrincipalId) ? { gatewayOperatorPrincipalId: text(value.gatewayOperatorPrincipalId) } : {}),
+        ...(timeout(value.gatewayTimeoutMs) !== undefined ? { gatewayTimeoutMs: timeout(value.gatewayTimeoutMs) } : {}),
+        ...(text(value.apiVersion) ? { apiVersion: text(value.apiVersion) } : {}),
+        ...(text(value.schemaVersion) ? { schemaVersion: text(value.schemaVersion) } : {}),
+        ...(text(value.coreVersion) ? { coreVersion: text(value.coreVersion) } : {}),
+        ...(text(value.storageVersion) ? { storageVersion: text(value.storageVersion) } : {}),
+        ...(text(value.policyDigest) ? { policyDigest: text(value.policyDigest) } : {}),
+        ...(text(value.driverArtifact) ? { driverArtifact: text(value.driverArtifact) } : {}),
+        ...(text(value.driverDigest) ? { driverDigest: text(value.driverDigest) } : {}),
+        ...(typeof value.verificationRequired === "boolean" ? { verificationRequired: value.verificationRequired } : {}),
+        ...(text(value.verificationReportPath) ? { verificationReportPath: text(value.verificationReportPath) } : {}),
+        ...(text(value.outboxPath) ? { outboxPath: text(value.outboxPath) } : {}),
+        ...(positiveInt(value.outboxMaxBytes) !== undefined ? { outboxMaxBytes: positiveInt(value.outboxMaxBytes) } : {}),
+        ...(positiveInt(value.outboxMaxEvents) !== undefined ? { outboxMaxEvents: positiveInt(value.outboxMaxEvents) } : {}),
+        ...(text(value.localCliPath) ? { localCliPath: text(value.localCliPath) } : {}),
+    }
+}
+
 export const TCH_AGENT_HOME_DIR = resolve(homedir(), ".tch-agent")
 export const DEFAULT_CONFIG_DIR = resolve(TCH_AGENT_HOME_DIR, "config")
 
@@ -203,18 +352,22 @@ function resolvePromptSessionExtensionPrompt(extension: ExtensionFactory | Promp
 
 export class ConfigManager {
     readonly dir: string
-    readonly auth: AuthStorage
+    readonly auth: LocalCredentialStore
+    readonly modelRuntime: ModelRuntime
     readonly models: ModelRegistry
     readonly settings: SettingsManager
+    readonly authorizedProjects: AuthorizedProjectInventoryStore
     private registeredTools = new Map<string, { def: ToolDefinition; source: string }>()
     private static instance: Promise<ConfigManager> | undefined
     private static instanceDir: string | undefined
 
-    private constructor(dir: string) {
+    private constructor(dir: string, auth: LocalCredentialStore, modelRuntime: ModelRuntime) {
         this.dir = dir
-        this.auth = AuthStorage.create(resolve(dir, "auth.json"))
-        this.models = ModelRegistry.create(this.auth, resolve(dir, "models.json"))
-        this.settings = SettingsManager.create(undefined, dir)
+        this.auth = auth
+        this.modelRuntime = modelRuntime
+        this.models = new ModelRegistry(modelRuntime)
+        this.settings = SettingsManager.create(process.cwd(), dir)
+        this.authorizedProjects = new AuthorizedProjectInventoryStore(resolve(dir, "authorized-projects.json"))
     }
 
     static async getInstance(configDir = DEFAULT_CONFIG_DIR): Promise<ConfigManager> {
@@ -222,7 +375,14 @@ export class ConfigManager {
         if (this.instance && this.instanceDir === dir) return this.instance
 
         const created = (async () => {
-            const mgr = new ConfigManager(dir)
+            const auth = new LocalCredentialStore(resolve(dir, "auth.json"))
+            await auth.load()
+            const modelRuntime = await ModelRuntime.create({
+                credentials: auth,
+                modelsPath: resolve(dir, "models.json"),
+                refreshOnCreate: false,
+            })
+            const mgr = new ConfigManager(dir, auth, modelRuntime)
             await mgr.initialize()
             return mgr
         })()
@@ -241,6 +401,7 @@ export class ConfigManager {
         const configDir = this.dir
         const dirs = [configDir, resolve(configDir, "prompts"), resolve(configDir, "skills")]
         for (const d of dirs) await mkdir(d, { recursive: true })
+        await prompts.initBuiltinPrompts(configDir)
 
         //配置重试
         this.settings.setRetryEnabled(true)
@@ -249,7 +410,7 @@ export class ConfigManager {
                 enabled: true,
                 maxRetries: 20,
                 baseDelayMs: 1000,
-                maxDelayMs: 60000,
+                maxAgentDelayMs: 60000,
             },
         })
 
@@ -257,6 +418,7 @@ export class ConfigManager {
         for (const p of customProviders) {
             this.models.registerProvider(p.name, p.config)
         }
+        await this.models.refresh({ allowNetwork: false })
 
         // SDK 内置工具
         for (const def of builtinToolDefinitions) {
@@ -269,7 +431,7 @@ export class ConfigManager {
 
     }
 
-    // ── API Keys (auth.json via AuthStorage) ──
+    // ── API Keys (auth.json via the ModelRuntime credential store) ──
 
     setApiKey(provider: string, key: string) {
         this.auth.set(provider, { type: "api_key", key })
@@ -293,7 +455,7 @@ export class ConfigManager {
     }
 
     listApiKeys(): string[] {
-        return this.auth.list()
+        return this.auth.providerIds()
     }
 
     // ── Provider Prefs (独立存储，支持同名 provider 多条配置) ──
@@ -421,7 +583,7 @@ export class ConfigManager {
             }),
         )
         await Bun.write(this.modelsJsonPath(), JSON.stringify({ providers }, null, 2))
-        this.models.refresh()
+        await this.models.refresh({ allowNetwork: false })
     }
 
     async getProvider(name: string): Promise<Record<string, unknown> | undefined> {
@@ -461,7 +623,7 @@ export class ConfigManager {
     }
 
     modelSupportsXhigh(model: Model<Api>): boolean {
-        return supportsXhigh(model)
+        return getSupportedThinkingLevels(model).includes("xhigh")
     }
 
     async discoverModels(providerName: string): Promise<DiscoveredModel[]> {
@@ -734,7 +896,7 @@ export class ConfigManager {
         const pref = prefs.find((p) => p.id === prefId)
         if (!pref) return { ok: false, error: `Model config ${prefId} not found` }
 
-        this.models.refresh()
+        await this.models.refresh({ allowNetwork: false })
         const loadError = this.models.getError()
         const binding = resolveModelProviderBinding(pref, await this.listProviderPrefs())
         if (binding.error) return { ok: false, error: binding.error }
@@ -752,7 +914,7 @@ export class ConfigManager {
         }
         if (!baseModel) {
             await this.ensureModelInProvider(pref)
-            this.models.refresh()
+            await this.models.refresh({ allowNetwork: false })
             baseModel = this.models.find(binding.runtimeProvider, pref.modelId)
             providerConfig = await this.getProvider(binding.runtimeProvider)
         }
@@ -777,12 +939,16 @@ export class ConfigManager {
             contextWindow: typeof model.contextWindow === "number" ? model.contextWindow : undefined,
             maxTokens: typeof model.maxTokens === "number" ? model.maxTokens : undefined,
             apiKeySummary: summarizeApiKey(resolvedApiKey),
-            headers: auth.ok && auth.headers && Object.keys(auth.headers).length > 0 ? auth.headers : undefined,
+            headers:
+                auth.ok && auth.headers
+                    ? Object.fromEntries(Object.entries(auth.headers).filter((entry): entry is [string, string] => typeof entry[1] === "string"))
+                    : undefined,
             compat: model.compat && typeof model.compat === "object" ? (model.compat as Record<string, unknown>) : undefined,
         }
         if (!auth.ok) return { ok: false, error: auth.error, details: resolvedDetails }
 
         const resourceLoader = new DefaultResourceLoader({
+            cwd: process.cwd(),
             agentDir: this.dir,
             settingsManager: this.settings,
             systemPromptOverride: () => "You are a test assistant. Respond with exactly: OK",
@@ -795,8 +961,7 @@ export class ConfigManager {
                 tools: [],
                 customTools: [],
                 resourceLoader,
-                authStorage: this.auth,
-                modelRegistry: this.models,
+                modelRuntime: this.modelRuntime,
                 settingsManager: this.settings,
                 sessionManager: SessionManager.inMemory(),
             })
@@ -1008,15 +1173,17 @@ export class ConfigManager {
         // 3) 比赛工具按环境开关过滤
         const challengeId = process.env[CHALLENGE_ENV_CHALLENGE_ID]?.trim()
         const challengeToolsEnabled = Boolean(challengeId)
-        const enabledToolNames = requestedToolNames.filter((name) => challengeToolsEnabled || !challengeToolNames.has(name))
+        const enabledToolNames = options?.authorizedSolver
+            ? ["challenge_authorized_http", "authorized_work_complete"]
+            : requestedToolNames.filter((name) => challengeToolsEnabled || !challengeToolNames.has(name))
 
         // 4) 分离内置工具与自定义工具
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const builtinTools: any[] = []
+        const builtinTools: string[] = []
         const customToolNames: string[] = []
         for (const n of enabledToolNames) {
-            if (n in builtinToolMap) {
-                builtinTools.push(builtinToolMap[n])
+            if (builtinToolNames.has(n)) {
+                builtinTools.push(n)
             } else if (this.registeredTools.has(n)) {
                 customToolNames.push(n)
             }
@@ -1026,7 +1193,7 @@ export class ConfigManager {
         // 5) 构建自定义工具定义（包含 subagent 工具）
         const customToolDefs = customToolNames.length > 0 ? this.resolveTools(customToolNames) : []
         const subagents = prompt.meta.subagents
-        if (prompt.meta.isSubagent !== true && subagents && subagents.length > 0) {
+        if (!options?.authorizedSolver && prompt.meta.isSubagent !== true && subagents && subagents.length > 0) {
             const allSubagentPrompts = await this.listSubagentPrompts()
             const enabledSubagentPrompts = allSubagentPrompts.filter((subagent) => subagent.meta.disabled !== true && subagents.includes(subagent.name))
             if (enabledSubagentPrompts.length > 0) {
@@ -1038,7 +1205,7 @@ export class ConfigManager {
         const enabledSkillNames = new Set(prompt.meta.skills ?? [])
 
         // 7) 构建 MCP 扩展
-        const enabledMcpServers = (prompt.meta.mcps ?? []).filter((name) => name in this.getMcpConfig().mcpServers)
+        const enabledMcpServers = options?.authorizedSolver ? [] : (prompt.meta.mcps ?? []).filter((name) => name in this.getMcpConfig().mcpServers)
         const mcpExtension =
             enabledMcpServers.length > 0
                 ? createMcpAdapter({
@@ -1060,6 +1227,7 @@ export class ConfigManager {
         ]
 
         const resourceLoader = new DefaultResourceLoader({
+            cwd: process.cwd(),
             agentDir: this.dir,
             systemPromptOverride: () => systemPromptSections.join("\n\n"),
             extensionFactories: [mcpExtension, ...resolvedExtensions.map(resolvePromptSessionExtensionFactory)].filter(
@@ -1077,8 +1245,7 @@ export class ConfigManager {
             tools: builtinTools,
             customTools: customToolDefs,
             resourceLoader,
-            authStorage: this.auth,
-            modelRegistry: this.models,
+            modelRuntime: this.modelRuntime,
             settingsManager: this.settings,
         }
         if (model) opts.model = model
@@ -1099,7 +1266,7 @@ export class ConfigManager {
         const pref = prefs.find((item) => item.id === modelPref)
         if (!pref) throw new Error(`model config ${modelPref} not found`)
 
-        this.models.refresh()
+        await this.models.refresh({ allowNetwork: false })
         const loadError = this.models.getError()
         const binding = resolveModelProviderBinding(pref, await this.listProviderPrefs())
         if (binding.error) throw new Error(binding.error)
@@ -1107,7 +1274,7 @@ export class ConfigManager {
         let baseModel = this.models.find(binding.runtimeProvider, pref.modelId)
         if (!baseModel) {
             await this.ensureModelInProvider(pref)
-            this.models.refresh()
+            await this.models.refresh({ allowNetwork: false })
             baseModel = this.models.find(binding.runtimeProvider, pref.modelId)
         }
         if (!baseModel) {
@@ -1130,6 +1297,7 @@ export class ConfigManager {
     }
 
     async setChallengePlannerPrompt(content: string, model?: string) {
+        if (!content.trim()) throw new Error("challenge planner prompt content is required")
         const existing = await this.getChallengePlannerPrompt()
         await prompts.savePrompt(this.dir, {
             name: prompts.CHALLENGE_PLANNER_PROMPT_NAME,
@@ -1196,6 +1364,18 @@ export class ConfigManager {
         await Bun.write(this.globalSettingsPath(), JSON.stringify(data, null, 2))
     }
 
+    listAuthorizedProjectBindings(): Promise<AuthorizedProjectBinding[]> {
+        return this.authorizedProjects.list()
+    }
+
+    saveAuthorizedProjectBinding(binding: AuthorizedProjectBinding): Promise<void> {
+        return this.authorizedProjects.save(binding)
+    }
+
+    removeAuthorizedProjectBinding(challengeId: string): Promise<void> {
+        return this.authorizedProjects.remove(challengeId)
+    }
+
     async getHostAuthSettings(): Promise<HostAuthSettings> {
         const raw = await this.readGlobalSettingsRaw()
         const tch = raw.tch && typeof raw.tch === "object" && !Array.isArray(raw.tch) ? (raw.tch as { auth?: HostAuthSettings }) : {}
@@ -1221,7 +1401,7 @@ export class ConfigManager {
         const raw = await this.readGlobalSettingsRaw()
         const tch =
             raw.tch && typeof raw.tch === "object" && !Array.isArray(raw.tch)
-                ? (raw.tch as { runtime?: HostRuntimeSettings; planner?: HostPlannerSettings; auth?: HostAuthSettings })
+                ? (raw.tch as { runtime?: HostRuntimeSettings; planner?: HostPlannerSettings; auth?: HostAuthSettings; taric?: TaricHostSettings })
                 : {}
         const planner = tch.planner ?? {}
         return {
@@ -1231,6 +1411,7 @@ export class ConfigManager {
                 staleTimeoutMs: planner.staleTimeoutMs,
             },
             auth: { registrationEnabled: tch.auth?.registrationEnabled ?? true },
+            taric: sanitizeTaricHostSettings(tch.taric),
         }
     }
 
@@ -1245,6 +1426,7 @@ export class ConfigManager {
                 staleTimeoutMs: plannerPatch.staleTimeoutMs ?? current.planner.staleTimeoutMs,
             },
             auth: { ...current.auth, registrationEnabled: patch.auth?.registrationEnabled ?? current.auth.registrationEnabled },
+            taric: sanitizeTaricHostSettings({ ...(current.taric ?? {}), ...(patch.taric ?? {}) }),
         }
 
         const raw = await this.readGlobalSettingsRaw()
@@ -1256,5 +1438,46 @@ export class ConfigManager {
         await this.writeGlobalSettingsRaw(raw)
         await this.settings.reload()
         return merged
+    }
+
+    /**
+     * Fill the taric host settings required by the local gateway supervisor.
+     * Existing operator values are preserved: endpoint fields are only
+     * corrected when they clearly refer to the same locally-supervised
+     * gateway (principal identity matches), and `enabled: false` is an
+     * explicit opt-out that is never overridden.
+     */
+    async applyLocalTaricDefaults(gateway: {
+        host: string
+        port: number
+        caFile: string
+        serverName: string
+        hostPrincipalId: string
+        modelPrincipalId: string
+        operatorPrincipalId: string
+    }): Promise<TaricHostSettings | undefined> {
+        const current = await this.getHostSettings()
+        const taric = current.taric
+        if (taric?.enabled === false) return taric
+
+        const ours = taric?.hostPrincipalId === gateway.hostPrincipalId
+        const patch: TaricHostSettings = {}
+        if (taric?.enabled === undefined) patch.enabled = true
+        if (taric?.profile === undefined) patch.profile = "authenticated_proxy"
+        if (taric?.engagementBoundary === undefined) patch.engagementBoundary = "shared_development"
+        if (taric?.gatewayTransport === undefined) patch.gatewayTransport = "tls_tcp"
+        if (taric?.gatewayHostTokenEnv === undefined) patch.gatewayHostTokenEnv = "TARIC_GATEWAY_HOST_TOKEN"
+        if (taric?.gatewayModelTokenEnv === undefined) patch.gatewayModelTokenEnv = "TARIC_GATEWAY_MODEL_TOKEN"
+        if (taric?.gatewayOperatorTokenEnv === undefined) patch.gatewayOperatorTokenEnv = "TARIC_GATEWAY_OPERATOR_TOKEN"
+        if (taric?.hostPrincipalId === undefined) patch.hostPrincipalId = gateway.hostPrincipalId
+        if (taric?.modelPrincipalId === undefined) patch.modelPrincipalId = gateway.modelPrincipalId
+        if (taric?.gatewayOperatorPrincipalId === undefined) patch.gatewayOperatorPrincipalId = gateway.operatorPrincipalId
+        if (ours || taric?.gatewayHost === undefined) patch.gatewayHost = gateway.host
+        if (ours || taric?.gatewayPort === undefined) patch.gatewayPort = gateway.port
+        if (ours || taric?.gatewayCaFile === undefined) patch.gatewayCaFile = gateway.caFile
+        if (ours || taric?.gatewayServerName === undefined) patch.gatewayServerName = gateway.serverName
+
+        if (Object.keys(patch).length === 0) return taric
+        return (await this.setHostSettings({ taric: patch })).taric
     }
 }

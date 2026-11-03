@@ -1,4 +1,4 @@
-import type { Usage } from "@mariozechner/pi-ai"
+import type { Usage } from "@earendil-works/pi-ai"
 
 function formatCost(cost: number): string {
     return `$${cost.toFixed(4)}`

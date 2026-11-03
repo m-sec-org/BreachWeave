@@ -36,7 +36,7 @@ Colors resolved to ANSI sequences at construction. Methods: `fg(color, text)`, `
 - Custom: `~/.pi/themes/*.json`
 - Programmatic: `setRegisteredThemes(Theme[])` from extensions
 - Auto-detect: `COLORFGBG` env (bg < 8 → dark, else light)
-- Global via `Symbol.for("@mariozechner/pi-coding-agent:theme")` on `globalThis`
+- Global via `Symbol.for("@earendil-works/pi-coding-agent:theme")` on `globalThis`
 - Hot-reload: `fs.watch()` on custom themes dir, 100ms debounce
 
 ---

@@ -1,5 +1,5 @@
-import { createAgentSession, SessionManager } from "@mariozechner/pi-coding-agent"
-import type { AgentSession, CreateAgentSessionOptions, ExtensionFactory } from "@mariozechner/pi-coding-agent"
+import { createAgentSession, SessionManager } from "@earendil-works/pi-coding-agent"
+import type { AgentSession, CreateAgentSessionOptions, ExtensionFactory } from "@earendil-works/pi-coding-agent"
 import { mkdir } from "node:fs/promises"
 import { ConfigManager } from "../config/index"
 import type { PromptFile } from "../config/prompts/index"
@@ -10,6 +10,11 @@ import { pentestCompactionExtension } from "./extension/pentest-compaction"
 import { scopeGuardExtension } from "./extension/scope-guard"
 import { largeToolResultExtension } from "./extension/large-tool-result"
 import { rtkRewriteExtension } from "./extension/rtk-rewrite"
+import { AUTHORIZED_MODEL_ORIGIN_ENV, AUTHORIZED_SOLVER_ENV, CHALLENGE_ENV_CHALLENGE_ID } from "../challenge/env"
+import { registerAuthorizedWorkFinishedCallback, requestHostBridge } from "../challenge/host-bridge-client"
+import { createAuthorizedModelFetch } from "./authorized-model-fetch"
+import { challengeToolNames } from "../config/tools/challenge-tools"
+import { challengeObserverAgentTools } from "./extension/challenge-observer/tools"
 
 export interface SolverSession {
     session: AgentSession
@@ -45,6 +50,63 @@ export interface SubagentStartupSnapshot {
 function readInjectedPath(name: string): string | undefined {
     const value = process.env[name]?.trim()
     return value ? value : undefined
+}
+
+/**
+ * The SDK keeps custom tools registered separately from the active tool
+ * allowlist. Solver sessions must activate the tools that the prompt and the
+ * challenge extension registered, otherwise the model cannot submit its report
+ * or refresh the shared board.
+ */
+export function resolveSolverActiveToolNames(
+    prompt: PromptFile,
+    sessionOpts: Pick<CreateAgentSessionOptions, "tools" | "customTools">,
+    options: { challengeMode: boolean; authorizedSolver: boolean },
+): string[] {
+    const names = new Set<string>(sessionOpts.tools ?? [])
+    for (const tool of sessionOpts.customTools ?? []) names.add(tool.name)
+
+    if (!options.authorizedSolver) {
+        for (const name of prompt.meta.tools ?? []) {
+            if (options.challengeMode || !challengeToolNames.has(name)) names.add(name)
+        }
+    }
+
+    if (options.challengeMode && !options.authorizedSolver) {
+        for (const tool of challengeObserverAgentTools) names.add(tool.name)
+    }
+
+    return [...names]
+}
+
+function installAuthorizedModelFetch(): void {
+    const origin = process.env[AUTHORIZED_MODEL_ORIGIN_ENV]?.trim()
+    if (!origin) throw new Error("authorized Solver requires a host-approved model origin")
+    globalThis.fetch = createAuthorizedModelFetch(origin)
+}
+
+function installAuthorizedWorkHeartbeat(): void {
+    const binding = {
+        challengeId: process.env.TCH_CHALLENGE_ID?.trim(),
+        workRunId: process.env.TCH_TARIC_WORK_RUN_ID?.trim(),
+        generation: Number(process.env.TCH_TARIC_WORK_GENERATION),
+        resourceId: process.env.TCH_TARIC_RESOURCE_ID?.trim(),
+    }
+    if (!binding.challengeId || !binding.workRunId || !Number.isSafeInteger(binding.generation) || binding.generation < 1 || !binding.resourceId) {
+        throw new Error("authorized Solver requires a complete WorkRun heartbeat binding")
+    }
+    let pending: Promise<unknown> | undefined
+    const timer = setInterval(() => {
+        if (pending) return
+        pending = requestHostBridge("authorized_work_renew", {}, 15_000).catch(() => {
+            // Every target action independently checks the canonical lease.
+        }).finally(() => {
+            pending = undefined
+        })
+    }, 15_000)
+    registerAuthorizedWorkFinishedCallback(() => {
+        clearInterval(timer)
+    })
 }
 
 export function buildSolverStartupSnapshot(
@@ -125,19 +187,28 @@ export async function createSolverSession(init: SolverInitPayload): Promise<Solv
     }
 
     const observerEnabled = prompt.meta.observerEnabled === true
+    const authorizedSolver = process.env[AUTHORIZED_SOLVER_ENV] === "1"
     const promptModel = typeof prompt.meta.model === "string" && prompt.meta.model.trim() ? prompt.meta.model.trim() : undefined
     const observerModel = typeof prompt.meta.observerModel === "string" && prompt.meta.observerModel.trim() ? prompt.meta.observerModel.trim() : promptModel
 
     const extensions = [
         // largeToolResultExtension({ workspaceRoot: workspaceDir }),
-        challengeObserverExtension({ observerEnabled, observerModel }),
+        ...(!authorizedSolver ? [challengeObserverExtension({ observerEnabled, observerModel })] : []),
         // rtkRewriteExtension(),
     ]
 
-    const sessionOpts = await config.resolvePromptSession(init.promptName, extensions, { appendChallengeReportPrompt: true })
-    if (!sessionOpts) {
+    const resolvedSessionOpts = await config.resolvePromptSession(init.promptName, extensions, { appendChallengeReportPrompt: !authorizedSolver, authorizedSolver })
+    if (!resolvedSessionOpts) {
         throw new Error(`prompt not found: ${init.promptName}`)
     }
+    const sessionOpts = {
+        ...resolvedSessionOpts,
+        tools: resolveSolverActiveToolNames(prompt, resolvedSessionOpts, {
+            challengeMode: Boolean(process.env[CHALLENGE_ENV_CHALLENGE_ID]?.trim()),
+            authorizedSolver,
+        }),
+    }
+    if (authorizedSolver) installAuthorizedModelFetch()
     const startupSnapshot = buildSolverStartupSnapshot(init, prompt, sessionOpts, {
         solverDir: baseDir,
         sessionDir,
@@ -151,6 +222,7 @@ export async function createSolverSession(init: SolverInitPayload): Promise<Solv
         sessionManager: SessionManager.create(workspaceDir, sessionDir),
     })
     await session.bindExtensions({})
+    if (authorizedSolver) installAuthorizedWorkHeartbeat()
 
     return { session, sessionDir, workspaceDir }
 }

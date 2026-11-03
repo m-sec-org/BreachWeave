@@ -1,0 +1,97 @@
+{
+  "format": "breachweave-dvwa-taric-real/1",
+  "date": "2026-10-28",
+  "classification": "single-run-practice-case-study",
+  "target": {
+    "url": "http://10.5.207.26:4280/",
+    "authorization": "user-supplied",
+    "credentialHandling": "provided out-of-band; omitted from artifact"
+  },
+  "deployment": {
+    "breachweave": "http://127.0.0.1:3000",
+    "taricGateway": "127.0.0.1:8849",
+    "stateHome": "/tmp/breachweave-dvwa-home",
+    "memoryMode": "taric_best_effort",
+    "profile": "authenticated_proxy",
+    "engagementBoundary": "shared_development"
+  },
+  "model": {
+    "provider": "zhipuai",
+    "model": "glm-5.3",
+    "baseUrl": "https://open.bigmodel.cn/api/coding/paas/v4",
+    "probe": "ok",
+    "secretMaterial": "omitted"
+  },
+  "dvwaAuthentication": {
+    "loginGetStatus": 200,
+    "loginPostStatus": 302,
+    "authenticatedIndexStatus": 200,
+    "authenticatedIndexMarker": true,
+    "logoutStatus": 302,
+    "postLogoutIndexStatus": 302,
+    "sessionTokenUsed": true,
+    "rawResponseStorage": "temporary_outside_repo"
+  },
+  "moduleBaselines": {
+    "securityGetStatus": 200,
+    "securityPostStatus": 302,
+    "securityLowMarker": true,
+    "sqli": { "status": 200, "responseMarker": true, "unionFinding": true, "rawValuesOmitted": true },
+    "xssReflected": { "status": 200, "inputReflected": true, "payloadMarker": true },
+    "commandInjectionBaseline": { "status": 200, "responseMarker": true, "rceMarker": true, "rawOutputOmitted": true },
+    "fileInclusionBaseline": { "status": 200, "responseMarker": true },
+    "bruteForceBaseline": { "status": 200 }
+  },
+  "taricRun": {
+    "challengeId": "2c955c04",
+    "solverRuns": [
+      {
+        "solverId": "58f8db76",
+        "attemptId": "attempt_3e6d90c7",
+        "status": "stopped",
+        "outcome": "authenticated_login_and_security_setup_observed;_generated_follow_up_script_failed_syntax_check"
+      },
+      {
+        "solverId": "b50d4c6e",
+        "attemptId": "attempt_5bb1d53f",
+        "status": "stopped",
+        "outcome": "authenticated_login;_command_injection_RCE_confirmed;_SQL_injection_UNION_query_confirmed;_reflected_XSS_confirmed;_no_report_submitted"
+      }
+    ],
+    "plannerDisabledAfterRun": true,
+    "submissions": 0,
+    "memoryHealth": "healthy",
+    "memoryWrite": {
+      "id": "01a18036-e2e9-7f78-9aba-160e57b776f3",
+      "trustState": "candidate",
+      "queryBack": true,
+      "canonicalAccepted": false
+    },
+    "memoryDiagnostics": {
+      "status": "complete",
+      "canonicalRecords": 0,
+      "candidateRecords": 5,
+      "watermark": 7,
+      "totalPages": 2
+    },
+    "hostAudit": {
+      "path": "/tmp/breachweave-dvwa-home/.tch-agent/challenge/2c955c04/taric-capture-audit.ndjson",
+      "recordCount": 187,
+      "outcome": "rejected_validation",
+      "code": "host_audit_only",
+      "acceptedObservationCapture": false
+    },
+    "findingSummary": {
+      "commandInjection": "confirmed_at_low_security;_shell_output_observed;_raw_output_omitted",
+      "sqlInjection": "confirmed_at_low_security;_UNION_query_returned_database_rows;_raw_values_omitted",
+      "reflectedXss": "confirmed;_marker_reflected",
+      "fileInclusion": "not_confirmed",
+      "reportSubmission": "none"
+    }
+  },
+  "limitations": [
+    "Automatic solver, attempt, and report events lacked trusted Resource UUID and artifact references, so the host correctly retained them as audit-only records.",
+    "This is one real authenticated practice run, not a legacy_local versus Taric benchmark.",
+    "Authorized-pentest project-bound Engagement provisioning, mandatory egress enforcement, scheduler WorkRun wiring, evidence admission, and close gates remain outside this run."
+  ]
+}

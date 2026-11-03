@@ -1,6 +1,6 @@
 import Dockerode from "dockerode"
-import { basename, dirname, resolve } from "node:path"
-import { appendFile, mkdir, readdir, rename } from "node:fs/promises"
+import { basename, dirname, isAbsolute, relative, resolve } from "node:path"
+import { appendFile, chmod, copyFile, lstat, mkdir, mkdtemp, readdir, rename, rm } from "node:fs/promises"
 import type {
     ContainerConfig,
     HostBridgeHandler,
@@ -10,10 +10,10 @@ import type {
     SolverInstance,
 } from "./types"
 import { ARCHIVE_SOLVERS_DIR, SOLVERS_DIR, solverDir, solverSessionDir, solverStartupPath, solverWorkspaceDir } from "./types"
-import { ConfigManager, DEFAULT_CONFIG_DIR } from "../config/index"
-import { CHALLENGE_ENV_CHALLENGE_ID } from "../challenge/env"
-import type { AgentSessionEvent } from "@mariozechner/pi-coding-agent"
-import type { Message } from "@mariozechner/pi-ai"
+import { ConfigManager, DEFAULT_CONFIG_DIR, TCH_AGENT_HOME_DIR } from "../config/index"
+import { AUTHORIZED_MODEL_ORIGIN_ENV, AUTHORIZED_SOLVER_ENV, CHALLENGE_ENV_CHALLENGE_ID, CHALLENGE_ENV_PROJECT_ID } from "../challenge/env"
+import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent"
+import type { Message } from "@earendil-works/pi-ai"
 import type { HostBridgeRequestEvent } from "../challenge/host-bridge-types"
 import type { RpcCommand, SolverInitPayload } from "../solver/rpc/rpc-types"
 import type { Subprocess } from "bun"
@@ -33,6 +33,72 @@ import {
 } from "./helpers"
 const SOLVER_NAME_PREFIX = "tch-solver"
 const DOCKER_PROXY_ENV_KEYS = ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy"] as const
+export const MODEL_BRIDGE_PLACEHOLDER = "TCH_MODEL_BRIDGE_PLACEHOLDER"
+
+interface AuthorizedModelTransportBinding {
+    origin: string
+    pathPrefix: string
+    providerId: string
+    modelPrefId: string
+    modelId: string
+    apiKey: string
+    configDir: string
+}
+
+interface AuthorizedModelRequest {
+    controller: AbortController
+    reader?: ReadableStreamDefaultReader<Uint8Array>
+    total: number
+    reading: boolean
+}
+
+const RESERVED_SOLVER_ENV_KEY = /^TCH_(?:TARIC_|AUTHORIZED_|MODEL_BRIDGE_)/i
+const AUTHORIZED_TARIC_METADATA_KEYS = new Set([
+    "TCH_TARIC_WORK_RUN_ID",
+    "TCH_TARIC_WORK_GENERATION",
+    "TCH_TARIC_ATTEMPT_ID",
+    "TCH_TARIC_OWNER_AGENT_ID",
+    "TCH_TARIC_SCOPE_ID",
+    "TCH_TARIC_SCOPE_VERSION",
+    "TCH_TARIC_SCOPE_REVISION_ID",
+    "TCH_TARIC_RESOURCE_ID",
+    "TCH_TARIC_TASK_SESSION_ID",
+])
+const SENSITIVE_CONFIG_KEY = /(?:api[-_]?key|headers?|authorization|credential|secret|token|cookie|password|private[-_]?key)/i
+const SAFE_MODEL_REQUEST_HEADERS = new Set([
+    "accept",
+    "anthropic-beta",
+    "anthropic-version",
+    "content-type",
+    "openai-beta",
+    "user-agent",
+    "x-stainless-arch",
+    "x-stainless-lang",
+    "x-stainless-os",
+    "x-stainless-package-version",
+    "x-stainless-retry-count",
+    "x-stainless-timeout",
+    "x-stainless-helper-method",
+    "x-stainless-runtime",
+    "x-stainless-runtime-version",
+])
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+function sanitizeAuthorizedConfig(value: unknown): unknown {
+    if (Array.isArray(value)) return value.map(sanitizeAuthorizedConfig)
+    if (!isRecord(value)) return value
+    return Object.fromEntries(Object.entries(value)
+        .filter(([key]) => !SENSITIVE_CONFIG_KEY.test(key))
+        .map(([key, item]) => [key, sanitizeAuthorizedConfig(item)]))
+}
+
+function isWithinPath(parent: string, path: string): boolean {
+    const relativePath = relative(resolve(parent), resolve(path))
+    return relativePath === "" || (!relativePath.startsWith("..") && !isAbsolute(relativePath))
+}
 
 export { getAgentEndError, hashDockerfileContent } from "./helpers"
 
@@ -204,6 +270,8 @@ export class RuntimeManager {
     private solvers = new Map<string, SolverInstance>()
     private procs = new Map<string, Subprocess<"pipe", "pipe", "pipe">>()
     private solverEnvs = new Map<string, Record<string, string>>()
+    private authorizedModelBindings = new Map<string, AuthorizedModelTransportBinding>()
+    private authorizedModelRequests = new Map<string, Map<string, AuthorizedModelRequest>>()
     private liveMainThreadMessages = new Map<string, Message[]>()
     private hostBridgeHandlers: HostBridgeHandler[]
     private hostConfig: ConfigManager
@@ -268,8 +336,19 @@ export class RuntimeManager {
     }
 
     private clearSolverRuntimeState(solverId: string): void {
+        for (const request of this.authorizedModelRequests.get(solverId)?.values() ?? []) {
+            request.controller.abort()
+            void request.reader?.cancel().catch(() => {})
+        }
+        this.authorizedModelRequests.delete(solverId)
         this.procs.delete(solverId)
         this.solverEnvs.delete(solverId)
+        const authorizedBinding = this.authorizedModelBindings.get(solverId)
+        if (authorizedBinding) {
+            authorizedBinding.apiKey = ""
+            void rm(authorizedBinding.configDir, { recursive: true, force: true }).catch(() => {})
+        }
+        this.authorizedModelBindings.delete(solverId)
         this.liveMainThreadMessages.delete(solverId)
     }
 
@@ -285,7 +364,7 @@ export class RuntimeManager {
 
     private normalizeSolverEnv(solverEnv?: Record<string, string>): Record<string, string> {
         if (!solverEnv) return {}
-        const normalized: Record<string, string> = {}
+        const normalized: Record<string, string> = Object.create(null)
         for (const [rawKey, rawValue] of Object.entries(solverEnv)) {
             const key = rawKey.trim()
             if (!key) continue
@@ -293,6 +372,106 @@ export class RuntimeManager {
             normalized[key] = rawValue
         }
         return normalized
+    }
+
+    private assertNoReservedSolverEnv(solverEnv: Record<string, string>): void {
+        const reserved = Object.keys(solverEnv).find((key) => RESERVED_SOLVER_ENV_KEY.test(key))
+        if (reserved) throw new Error(`solver environment key is reserved: ${reserved}`)
+    }
+
+    private async copyAuthorizedDirectory(sourceDir: string, destinationDir: string): Promise<void> {
+        const entries = await readdir(sourceDir, { withFileTypes: true })
+        for (const entry of entries) {
+            if (entry.isSymbolicLink() || entry.name === ".git" || entry.name === "node_modules" || SENSITIVE_CONFIG_KEY.test(entry.name)) continue
+            const sourcePath = resolve(sourceDir, entry.name)
+            const destinationPath = resolve(destinationDir, entry.name)
+            if (entry.isDirectory()) {
+                await mkdir(destinationPath, { recursive: true, mode: 0o700 })
+                await this.copyAuthorizedDirectory(sourcePath, destinationPath)
+                await chmod(destinationPath, 0o700)
+                continue
+            }
+            if (!entry.isFile()) continue
+            const info = await lstat(sourcePath)
+            if (info.size > 2 * 1024 * 1024) continue
+            await copyFile(sourcePath, destinationPath)
+            await chmod(destinationPath, 0o600)
+        }
+    }
+
+    private async stageAuthorizedConfig(promptName: string, modelPrefId: string, model: Record<string, unknown>, providerId: string): Promise<{ configDir: string; apiKey: string }> {
+        if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(promptName)) throw new Error("authorized Solver prompt name is invalid")
+        const prompt = await this.hostConfig.getPrompt(promptName)
+        if (!prompt || prompt.meta.model !== modelPrefId) throw new Error("authorized Solver prompt must pin its selected model")
+        const modelPrefs = await this.hostConfig.listModelPrefs()
+        const modelPref = modelPrefs.find((item) => item.id === modelPrefId)
+        if (!modelPref) throw new Error(`model config ${modelPrefId} not found`)
+        const providerConfig = await this.hostConfig.getProvider(providerId)
+        if (!providerConfig) throw new Error(`model provider ${providerId} not found`)
+        const auth = await this.hostConfig.models.getApiKeyAndHeaders(model as never)
+        if (!auth.ok || typeof auth.apiKey !== "string" || !auth.apiKey.trim()) throw new Error("authorized Solver model credential is unavailable")
+        if (auth.headers && Object.keys(auth.headers).length > 0) throw new Error("authorized Solver models cannot use custom request headers")
+
+        const baseUrl = typeof model.baseUrl === "string" ? model.baseUrl.trim() : ""
+        const modelUrl = new URL(baseUrl)
+        if (!/^https?:$/.test(modelUrl.protocol) || modelUrl.username || modelUrl.password || modelUrl.search || modelUrl.hash) {
+            throw new Error("authorized Solver model must use a pinned HTTP(S) base URL")
+        }
+
+        await mkdir(TCH_AGENT_HOME_DIR, { recursive: true })
+        const configDir = await mkdtemp(resolve(TCH_AGENT_HOME_DIR, "authorized-config-"))
+        try {
+            await chmod(configDir, 0o700)
+            const promptsDir = resolve(configDir, "prompts")
+            const skillsDir = resolve(configDir, "skills")
+            await mkdir(promptsDir, { recursive: true, mode: 0o700 })
+            await mkdir(skillsDir, { recursive: true, mode: 0o700 })
+
+            const promptSource = resolve(this.hostConfig.dir, "prompts", `${promptName}.md`)
+            const promptDestination = resolve(promptsDir, `${promptName}.md`)
+            const promptInfo = await lstat(promptSource).catch(() => undefined)
+            if (!promptInfo?.isFile() || promptInfo.size > 1024 * 1024) throw new Error("authorized Solver prompt file is unavailable")
+            await copyFile(promptSource, promptDestination)
+            await chmod(promptDestination, 0o600)
+
+            const skillRoot = resolve(this.hostConfig.dir, "skills")
+            for (const skillName of prompt.meta.skills ?? []) {
+                const skill = this.hostConfig.getSkill(skillName)
+                if (!skill || !isWithinPath(skillRoot, skill.baseDir)) continue
+                const relativeSkillPath = relative(skillRoot, resolve(skill.baseDir))
+                const destinationPath = resolve(skillsDir, relativeSkillPath)
+                const sourceInfo = await lstat(skill.baseDir).catch(() => undefined)
+                if (!sourceInfo?.isDirectory()) continue
+                await mkdir(destinationPath, { recursive: true, mode: 0o700 })
+                await this.copyAuthorizedDirectory(skill.baseDir, destinationPath)
+            }
+
+            const providerPrefs = await this.hostConfig.listProviderPrefs()
+            const providerPref = modelPref.providerId ? providerPrefs.find((item) => item.id === modelPref.providerId) : undefined
+            const stagedProvider = sanitizeAuthorizedConfig(providerConfig) as Record<string, unknown>
+            delete stagedProvider.headers
+            stagedProvider.apiKey = MODEL_BRIDGE_PLACEHOLDER
+            const stagedModel = sanitizeAuthorizedConfig(model) as Record<string, unknown>
+            delete stagedModel.headers
+            delete stagedModel.apiKey
+            stagedProvider.models = [stagedModel]
+
+            await Bun.write(resolve(configDir, "auth.json"), JSON.stringify({
+                [providerId]: { type: "api_key", key: MODEL_BRIDGE_PLACEHOLDER },
+            }, null, 2))
+            await Bun.write(resolve(configDir, "models.json"), JSON.stringify({ providers: { [providerId]: stagedProvider } }, null, 2))
+            await Bun.write(resolve(configDir, "model-prefs.json"), JSON.stringify({ models: [sanitizeAuthorizedConfig(modelPref)] }, null, 2))
+            await Bun.write(resolve(configDir, "provider-prefs.json"), JSON.stringify({ providers: providerPref ? [sanitizeAuthorizedConfig(providerPref)] : [] }, null, 2))
+            await Bun.write(resolve(configDir, "mcp.json"), JSON.stringify({ mcpServers: {} }, null, 2))
+            for (const fileName of ["auth.json", "models.json", "model-prefs.json", "provider-prefs.json", "mcp.json"]) {
+                await chmod(resolve(configDir, fileName), 0o600)
+            }
+
+            return { configDir, apiKey: auth.apiKey }
+        } catch (error) {
+            await rm(configDir, { recursive: true, force: true }).catch(() => {})
+            throw error
+        }
     }
 
     private getSolverEnvValue(solverId: string, key: string): string | undefined {
@@ -305,6 +484,12 @@ export class RuntimeManager {
     }
 
     private async executeHostBridgeAction(solverId: string, action: HostBridgeRequestEvent["action"], params: unknown): Promise<unknown> {
+        if (action === "authorized_model_fetch") return this.executeAuthorizedModelFetch(solverId, params)
+        if (action === "authorized_model_read") return this.readAuthorizedModelResponse(solverId, params)
+        if (action === "authorized_model_cancel") {
+            this.cancelAuthorizedModelRequest(solverId, params)
+            return { ok: true }
+        }
         for (const handler of this.hostBridgeHandlers) {
             const result = await handler.handle({
                 solverId,
@@ -321,6 +506,97 @@ export class RuntimeManager {
             }
         }
         throw new Error(`unsupported host bridge action: ${action}`)
+    }
+
+    private async executeAuthorizedModelFetch(solverId: string, params: unknown): Promise<{ status: number; headers: Record<string, string> }> {
+        const binding = this.authorizedModelBindings.get(solverId)
+        if (!binding || !binding.apiKey || !params || typeof params !== "object" || Array.isArray(params)) throw new Error("authorized model transport is unavailable")
+        const input = params as Record<string, unknown>
+        if (typeof input.transportId !== "string" || !/^[a-f0-9-]{36}$/.test(input.transportId)) throw new Error("authorized model transport id is invalid")
+        if (typeof input.url !== "string" || typeof input.method !== "string" || input.method !== "POST" || typeof input.bodyBase64 !== "string" || input.bodyBase64.length > 3 * 1024 * 1024 || !input.headers || typeof input.headers !== "object" || Array.isArray(input.headers)) throw new Error("authorized model request is invalid")
+        const url = new URL(input.url)
+        if (url.origin !== binding.origin || !url.pathname.startsWith(binding.pathPrefix) || url.username || url.password || url.hash || !["http:", "https:"].includes(url.protocol)) throw new Error("authorized model request destination is not approved")
+        const body = Buffer.from(input.bodyBase64, "base64")
+        if (body.byteLength > 2 * 1024 * 1024 || body.toString("base64") !== input.bodyBase64) throw new Error("authorized model request body is invalid")
+        const headers = new Headers()
+        const inputHeaders = Object.entries(input.headers as Record<string, unknown>)
+        if (inputHeaders.length > 64) throw new Error("authorized model request has too many headers")
+        let authorizationHeaderSeen = false
+        for (const [name, value] of inputHeaders) {
+            if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(name) || typeof value !== "string" || value.length > 16 * 1024 || /[\r\n\0]/.test(value)) throw new Error("authorized model request header is invalid")
+            const normalizedName = name.toLowerCase()
+            if (normalizedName === "authorization") {
+                if (authorizationHeaderSeen || value !== `Bearer ${MODEL_BRIDGE_PLACEHOLDER}`) throw new Error("authorized model request credential is invalid")
+                authorizationHeaderSeen = true
+                headers.set("authorization", `Bearer ${binding.apiKey}`)
+                continue
+            }
+            if (normalizedName === "x-api-key") {
+                if (authorizationHeaderSeen || value !== MODEL_BRIDGE_PLACEHOLDER) throw new Error("authorized model request credential is invalid")
+                authorizationHeaderSeen = true
+                headers.set("x-api-key", binding.apiKey)
+                continue
+            }
+            if (!SAFE_MODEL_REQUEST_HEADERS.has(normalizedName)) throw new Error("authorized model request header is not allowed")
+            headers.set(normalizedName, value)
+        }
+        if (!authorizationHeaderSeen) throw new Error("authorized model request credential is missing")
+        const requests = this.authorizedModelRequests.get(solverId) ?? new Map<string, AuthorizedModelRequest>()
+        if (requests.size >= 4 || requests.has(input.transportId)) throw new Error("authorized model request concurrency exceeds its bound")
+        const transportId = input.transportId
+        const request: AuthorizedModelRequest = { controller: new AbortController(), total: 0, reading: false }
+        requests.set(transportId, request)
+        this.authorizedModelRequests.set(solverId, requests)
+        try {
+            const response = await fetch(url, { method: "POST", headers, body, redirect: "manual", signal: AbortSignal.any([request.controller.signal, AbortSignal.timeout(10 * 60_000)]) })
+            request.controller.signal.throwIfAborted()
+            if (response.status >= 300 && response.status < 400) throw new Error("authorized model transport does not follow redirects")
+            request.reader = response.body?.getReader()
+            const safeHeaders: Record<string, string> = {}
+            for (const name of ["content-type", "cache-control", "retry-after", "x-request-id"]) {
+                const value = response.headers.get(name)
+                if (value) safeHeaders[name] = value
+            }
+            return { status: response.status, headers: safeHeaders }
+        } catch (error) {
+            this.cancelAuthorizedModelRequest(solverId, { transportId })
+            throw error
+        } finally {
+            body.fill(0)
+        }
+    }
+
+    private cancelAuthorizedModelRequest(solverId: string, params: unknown): void {
+        if (!isRecord(params) || typeof params.transportId !== "string") throw new Error("authorized model transport id is invalid")
+        const request = this.authorizedModelRequests.get(solverId)?.get(params.transportId)
+        if (!request) return
+        request.controller.abort()
+        void request.reader?.cancel().catch(() => {})
+        this.authorizedModelRequests.get(solverId)?.delete(params.transportId)
+    }
+
+    private async readAuthorizedModelResponse(solverId: string, params: unknown): Promise<{ done: boolean; bodyBase64?: string }> {
+        if (!isRecord(params) || typeof params.transportId !== "string") throw new Error("authorized model transport id is invalid")
+        const requests = this.authorizedModelRequests.get(solverId)
+        const request = requests?.get(params.transportId)
+        if (!request || request.reading) throw new Error("authorized model response is unavailable")
+        request.reading = true
+        try {
+            const chunk = await request.reader?.read()
+            if (!chunk || chunk.done) {
+                request.reader?.releaseLock()
+                requests?.delete(params.transportId)
+                return { done: true }
+            }
+            request.total += chunk.value.byteLength
+            if (request.total > 16 * 1024 * 1024) throw new Error("authorized model response exceeds its bound")
+            return { done: false, bodyBase64: Buffer.from(chunk.value).toString("base64") }
+        } catch (error) {
+            this.cancelAuthorizedModelRequest(solverId, params)
+            throw error
+        } finally {
+            request.reading = false
+        }
     }
 
     private async handleHostBridgeRequest(solverId: string, request: HostBridgeRequestEvent): Promise<void> {
@@ -483,12 +759,76 @@ export class RuntimeManager {
 
     /** Start a new solver container for a given prompt */
     async launch(promptName: string, task: string, solverEnv?: Record<string, string>, options?: { solverId?: string }): Promise<SolverInstance> {
+        const normalizedSolverEnv = this.normalizeSolverEnv(solverEnv)
+        this.assertNoReservedSolverEnv(normalizedSolverEnv)
+        return this.launchInternal(promptName, task, normalizedSolverEnv, options)
+    }
+
+    async launchAuthorized(promptName: string, task: string, solverEnv: Record<string, string>, modelPrefId: string, options?: { solverId?: string }): Promise<SolverInstance> {
+        const normalizedSolverEnv = this.normalizeSolverEnv(solverEnv)
+        for (const key of Object.keys(normalizedSolverEnv)) {
+            if (!RESERVED_SOLVER_ENV_KEY.test(key)) continue
+            if (AUTHORIZED_TARIC_METADATA_KEYS.has(key)) continue
+            throw new Error(`solver environment key is reserved: ${key}`)
+        }
+
+        await this.ensureReady()
+        const { model } = await this.hostConfig.resolveModelPref(modelPrefId)
+        const supportedModelApis = new Set([
+            "openai-completions",
+            "openai-responses",
+            "anthropic-messages",
+            "mistral-conversations",
+            "pi-messages",
+        ])
+        if (!supportedModelApis.has(model.api)) throw new Error("authorized Solver model API is not supported")
+        const modelUrl = new URL(typeof model.baseUrl === "string" ? model.baseUrl : "")
+        if (!/^https?:$/.test(modelUrl.protocol) || modelUrl.username || modelUrl.password || modelUrl.search || modelUrl.hash) {
+            throw new Error("authorized Solver model must use a pinned HTTP(S) base URL")
+        }
+
+        const providerId = model.provider
+        if (!providerId) throw new Error("authorized Solver model provider is unavailable")
+        const stagedConfig = await this.stageAuthorizedConfig(
+            promptName,
+            modelPrefId,
+            model as unknown as Record<string, unknown>,
+            providerId,
+        )
+        const binding: AuthorizedModelTransportBinding = {
+            origin: modelUrl.origin,
+            pathPrefix: `${modelUrl.pathname.replace(/\/+$/, "") || ""}/`,
+            providerId,
+            modelPrefId,
+            modelId: model.id,
+            apiKey: stagedConfig.apiKey,
+            configDir: stagedConfig.configDir,
+        }
+        const authorizedSolverEnv = {
+            ...normalizedSolverEnv,
+            [AUTHORIZED_SOLVER_ENV]: "1",
+            [AUTHORIZED_MODEL_ORIGIN_ENV]: binding.origin,
+        }
+        try {
+            return await this.launchInternal(promptName, task, authorizedSolverEnv, options, binding)
+        } catch (error) {
+            await rm(binding.configDir, { recursive: true, force: true }).catch(() => {})
+            throw error
+        }
+    }
+
+    private async launchInternal(
+        promptName: string,
+        task: string,
+        normalizedSolverEnv: Record<string, string>,
+        options?: { solverId?: string },
+        authorizedBinding?: AuthorizedModelTransportBinding,
+    ): Promise<SolverInstance> {
         await this.ensureReady()
         await this.ensureImage()
 
         const id = options?.solverId?.trim() || crypto.randomUUID().slice(0, 8)
         const name = `${SOLVER_NAME_PREFIX}-${id}`
-        const normalizedSolverEnv = this.normalizeSolverEnv(solverEnv)
 
         const solver: SolverInstance = {
             id,
@@ -497,11 +837,13 @@ export class RuntimeManager {
             promptName,
             task,
             challengeId: normalizedSolverEnv[CHALLENGE_ENV_CHALLENGE_ID]?.trim() || undefined,
+            projectId: normalizedSolverEnv[CHALLENGE_ENV_PROJECT_ID]?.trim() || undefined,
             status: "starting",
             createdAt: Date.now(),
         }
         this.solvers.set(id, solver)
         this.solverEnvs.set(id, normalizedSolverEnv)
+        if (authorizedBinding) this.authorizedModelBindings.set(id, authorizedBinding)
 
         const baseDir = solverDir(id)
         const sessionDir = solverSessionDir(id)
@@ -514,8 +856,9 @@ export class RuntimeManager {
         await mkdir(sessionDir, { recursive: true })
         await mkdir(workspaceDir, { recursive: true })
 
+        const authorizedSolver = Boolean(authorizedBinding)
         const binds = [
-            ...(this.config.binds ?? []),
+            ...(authorizedBinding ? [`${authorizedBinding.configDir}:/root/.tch-agent/config:ro`] : (this.config.binds ?? [])),
             `${baseDir}:${containerRuntimeDir}`,
             `${workspaceDir}:${containerWorkspaceDir}`,
         ]
@@ -533,7 +876,7 @@ export class RuntimeManager {
                     TCH_SOLVER_WORKSPACE: containerWorkspaceDir,
                 },
             )
-            const args = this.buildDockerArgs(name, binds, command, containerWorkspaceDir)
+            const args = this.buildDockerArgs(name, binds, command, containerWorkspaceDir, authorizedSolver)
 
             const proc = Bun.spawn(args, {
                 stdin: "pipe",
@@ -546,7 +889,7 @@ export class RuntimeManager {
 
             // Start reading JSONL, wait for init handshake to complete
             const initReady = this.readStream(id, proc)
-            const initPayload: SolverInitPayload = { solverId: id, promptName, task, challengeId: solver.challengeId }
+            const initPayload: SolverInitPayload = { solverId: id, promptName, task, challengeId: solver.challengeId, projectId: solver.projectId }
             proc.stdin.write(JSON.stringify(initPayload) + "\n")
             await initReady
 
@@ -563,7 +906,7 @@ export class RuntimeManager {
     }
 
     /** Build `docker run` CLI arguments from config */
-    private buildDockerArgs(name: string, binds: string[], cmd: string[], workdir: string): string[] {
+    private buildDockerArgs(name: string, binds: string[], cmd: string[], workdir: string, authorizedSolver = false): string[] {
         const args: string[] = [
             "docker",
             "run",
@@ -571,7 +914,7 @@ export class RuntimeManager {
             "--platform",
             "linux/amd64",
             "--network",
-            this.config.networkMode ?? "host",
+            authorizedSolver ? "none" : this.config.networkMode ?? "host",
             "--name",
             name,
             "-w",
@@ -582,7 +925,7 @@ export class RuntimeManager {
 
         for (const bind of binds) args.push("-v", bind)
 
-        for (const envVar of this.buildEnv()) args.push("-e", envVar)
+        if (!authorizedSolver) for (const envVar of this.buildEnv()) args.push("-e", envVar)
 
         args.push(this.config.image, ...cmd)
         return args
@@ -640,7 +983,7 @@ export class RuntimeManager {
             const mainSession = await readMessagesFromSessionDir(solverSessionDir(solverId))
             const startupInit =
                 startup && typeof startup === "object" && "init" in startup
-                    ? (startup as { init?: { promptName?: string; task?: string; challengeId?: string } }).init
+                    ? (startup as { init?: { promptName?: string; task?: string; challengeId?: string; projectId?: string } }).init
                     : undefined
             const status = getAssistantError(mainSession.messages) ? "error" : "stopped"
             const createdAt = await getStableSolverCreatedAt(solverId, startup, mainSession.createdAt)
@@ -651,6 +994,7 @@ export class RuntimeManager {
                 promptName: startupInit?.promptName ?? "unknown",
                 task: startupInit?.task ?? "",
                 challengeId: startupInit?.challengeId?.trim() || undefined,
+                projectId: startupInit?.projectId?.trim() || undefined,
                 status,
                 createdAt,
                 error: getAssistantError(mainSession.messages),
@@ -774,6 +1118,7 @@ export class RuntimeManager {
         const env: string[] = []
         if (this.config.env) {
             for (const [k, v] of Object.entries(this.config.env)) {
+                if (RESERVED_SOLVER_ENV_KEY.test(k.trim())) continue
                 env.push(`${k}=${v}`)
             }
         }

@@ -1,7 +1,7 @@
 import { join } from "path"
-import { defineTool } from "@mariozechner/pi-coding-agent"
-import type { Static } from "@sinclair/typebox"
-import { Type } from "@sinclair/typebox"
+import { defineTool } from "@earendil-works/pi-coding-agent"
+import type { Static } from "typebox"
+import { Type } from "typebox"
 import { isContractFailedOutput, parseSubAgentOutputRecord, type CandidateFindingRecord, type StructuredHypothesisRecord } from "./pentest-output"
 import {
     clearActiveHypothesis,

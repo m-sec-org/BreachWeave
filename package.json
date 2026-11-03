@@ -16,6 +16,18 @@
         "dev": "bun --hot apps/cli/src/main.ts web",
         "create-user": "bun run scripts/create-user.ts",
         "check:no-directory-imports": "bun run scripts/check-no-directory-imports.ts",
+    "verify:taric": "bun run scripts/verify-taric.ts",
+    "verify:taric:integration": "bun run scripts/verify-taric-integration.ts",
+        "verify:taric:control-plane": "bun run scripts/verify-taric-control-plane.ts",
+        "verify:taric:clean-consumer": "bun run scripts/verify-taric-clean-consumer.ts",
+        "smoke:taric:artifacts": "bun run scripts/smoke-taric-artifacts.ts",
+        "smoke:taric:work": "bun run scripts/smoke-taric-work.ts",
+        "smoke:taric:artifact-governance": "bun run scripts/smoke-taric-artifact-governance.ts",
+        "smoke:taric:actions": "bun run scripts/smoke-taric-actions.ts",
+        "smoke:taric:unified": "bun run scripts/smoke-taric-unified.ts",
+        "smoke:authorized-egress": "bun run scripts/smoke-authorized-solver-egress.ts",
+        "smoke:authorized-product": "bun run scripts/smoke-authorized-product.ts",
+        "audit:taric:contract": "bun run scripts/audit-taric-103-contract.ts",
         "build:kimi-gateway-test:linux": "bun build --compile ./scripts/test-kimi-gateway.ts --outfile ./bin/test-kimi-gateway-linux-x64 --target bun-linux-x64-baseline",
         "build": "bun run build:linux && bun run build:macos-arm64 && bun run build:macos-x64 && bun run build:windows && cp package.json bin/",
         "build:linux": "bun run scripts/build.ts bun-linux-x64-baseline bin/tch-agent-linux-x64",
@@ -25,6 +37,9 @@
         "typecheck": "bun ./node_modules/typescript/bin/tsc --noEmit -p packages/core && bun run check:no-directory-imports"
     },
     "module": "index.ts",
+    "engines": {
+        "node": ">=22.19.0"
+    },
     "devDependencies": {
         "@types/bun": "latest",
         "bun-plugin-tailwind": "^0.1.2",

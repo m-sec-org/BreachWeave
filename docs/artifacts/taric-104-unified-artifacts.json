@@ -1,0 +1,113 @@
+{
+  "reportVersion": "breachweave-taric-artifact-fixture/1",
+  "generatedAt": "2026-11-03T01:58:18.923Z",
+  "evidenceClass": "local_dist_fixture",
+  "sourceCommit": "1c466f4d8ad8f775f98bf867453b81230469287a",
+  "sourceCommitMeaning": "expected_checkout_ref_only",
+  "taricVersion": "1.0.4",
+  "taricVersionProvenance": "checkout_package_metadata",
+  "runtimeSourceProvenance": "unverified",
+  "runtimeArtifacts": {
+    "core": {
+      "directory": "packages/core/dist",
+      "entry": "index.js",
+      "entryDigest": "sha256:ffb5131b3ac71fdeafa30496304985ea76530e3a37b8baef615e26627005a7f7",
+      "directoryDigest": "sha256:b5a434163ca98cd9c30e5436b2b2bf64e40c36beffd9f5bff733da832761e135",
+      "fileCount": 128,
+      "byteLength": 2144639
+    },
+    "schemas": {
+      "directory": "packages/schemas/dist",
+      "entry": "src/index.js",
+      "entryDigest": "sha256:abf57876d5dadca84a626d4ac9c483eceb94c3482dd4a7152ad6ac8be3bab0d4",
+      "directoryDigest": "sha256:6ec2a5e7affec7dfbd920c8ac900d37955a02f9a1c3c6f7ea3ae896d19ef0df9",
+      "fileCount": 18,
+      "byteLength": 517602
+    },
+    "driver": {
+      "directory": "packages/driver-bun-sqlite/dist",
+      "entry": "index.js",
+      "entryDigest": "sha256:b9cfbc610ef89365ac34401ac8c07c2434b603c89be1eba66cd0ae2ea81e96cd",
+      "directoryDigest": "sha256:8e934525eb4185a57a5e64b1e0a80ca159c5969a17e322947c61355251e0d150",
+      "fileCount": 8,
+      "byteLength": 23333
+    }
+  },
+  "runtimeDirectoryDigestAlgorithm": "sha256(JSON.stringify(sorted array of {path,byteLength,digest} for every runtime directory file))",
+  "apiContractVersion": "1.4.0",
+  "storageContract": "authority-storage/4",
+  "operationRegistryDigest": "sha256:a37745ab273ccde0574d9c256cd5b984b58a5a98779d169280472f8b0301dd47",
+  "operationRegistrySourceDigest": "sha256:866a96b8fdb650c56c6edae59840b854930f4392f49edd5941ad67c6425b8603",
+  "authority": "single_host_sqlite",
+  "storagePathProfile": "isolated_temporary_database_and_content_root",
+  "artifactDeploymentProfile": "local_process_crash",
+  "restartMethod": "clean_authority_close_reopen_and_sigkill_child_process",
+  "processKillTested": true,
+  "powerLossDurabilityClaimed": false,
+  "temporaryStateRemoved": true,
+  "targetTrafficGenerated": false,
+  "userConfigurationRead": false,
+  "productionEvidence": false,
+  "assertions": [
+    {
+      "id": "explicit_host_session_bound",
+      "passed": true
+    },
+    {
+      "id": "committed_managed_target_auth",
+      "passed": true
+    },
+    {
+      "id": "verified_content_before_restart",
+      "passed": true
+    },
+    {
+      "id": "consumer_buffer_cleared",
+      "passed": true
+    },
+    {
+      "id": "durable_upload_identity_after_restart",
+      "passed": true
+    },
+    {
+      "id": "verified_content_after_authority_reopen",
+      "passed": true
+    },
+    {
+      "id": "ordinary_metadata_only",
+      "passed": true
+    },
+    {
+      "id": "ungranted_raw_read_denied",
+      "passed": true
+    },
+    {
+      "id": "changed_session_binding_denied",
+      "passed": true
+    },
+    {
+      "id": "crash_locator_contains_metadata_only",
+      "passed": true
+    },
+    {
+      "id": "authority_process_killed_with_sigkill",
+      "passed": true
+    },
+    {
+      "id": "content_recovered_after_sigkill_restart",
+      "passed": true
+    }
+  ],
+  "metrics": {
+    "passed": 12,
+    "total": 12
+  },
+  "identicalHostSessionRebind": "conflict",
+  "limitations": [
+    "This uses explicitly selected local dist directories, not rebuilt clean-consumer artifacts, registry tarballs, or real-gateway evidence.",
+    "Source HEAD and registry digests identify the expected checkout contract only. This runtime smoke does not certify source-to-dist provenance; runtimeSourceProvenance is unverified.",
+    "Runtime directory digests identify the selected Core, schema, and driver files, not their dependency closure or reproducible build provenance.",
+    "Authority restart includes authority child process SIGKILL followed by a fresh Bun process; power-loss and multi-host durability are unverified.",
+    "The selected local runtime returns conflict for identical host-session rebind after SQL hydration, consistent with nullable run-field comparison in the expected checkout. Existing committed content remains readable; rebind idempotency is not accepted."
+  ]
+}
