@@ -532,6 +532,14 @@ export async function startWeb(options: WebServerOptions) {
         }
     })
 
+    containers.onStatusChange((solverId, status) => {
+        runInBackground("broadcast-runtime-status", broadcastRuntimeSnapshot())
+        runInBackground(`broadcast-solver-status:${solverId}`, broadcastSolverDetails(solverId))
+        if (status === "stopped" || status === "error") {
+            runInBackground(`refresh-challenge-planner-status:${solverId}`, refreshChallengePlannerStatusForSolver(solverId))
+        }
+    })
+
     function extractBearerToken(req: Request): string | undefined {
         const auth = req.headers.get("Authorization")?.trim()
         if (auth?.startsWith("Bearer ")) return auth.slice("Bearer ".length).trim() || undefined

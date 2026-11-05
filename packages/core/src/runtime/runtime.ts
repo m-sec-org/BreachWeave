@@ -277,6 +277,7 @@ export class RuntimeManager {
     private hostConfig: ConfigManager
     private ready: Promise<void>
     private eventHandlers: SolverEventHandler[] = []
+    private statusHandlers: Array<(solverId: string, status: SolverInstance["status"]) => void> = []
 
     constructor(config: ConfigManager, hostBridgeHandlers: HostBridgeHandler[]) {
         this.docker = new Dockerode()
@@ -310,6 +311,22 @@ export class RuntimeManager {
 
     onEvent(handler: SolverEventHandler) {
         this.eventHandlers.push(handler)
+    }
+
+    onStatusChange(handler: (solverId: string, status: SolverInstance["status"]) => void) {
+        this.statusHandlers.push(handler)
+    }
+
+    private setSolverStatus(solver: SolverInstance, status: SolverInstance["status"]): void {
+        if (solver.status === status) return
+        solver.status = status
+        for (const handler of this.statusHandlers) {
+            try {
+                handler(solver.id, status)
+            } catch {
+                // ignore handler errors
+            }
+        }
     }
 
     private emit(solverId: string, event: AgentSessionEvent) {
@@ -885,7 +902,7 @@ export class RuntimeManager {
             })
 
             this.procs.set(id, proc)
-            solver.status = "running"
+            this.setSolverStatus(solver, "running")
 
             // Start reading JSONL, wait for init handshake to complete
             const initReady = this.readStream(id, proc)
@@ -897,8 +914,8 @@ export class RuntimeManager {
 
             return solver
         } catch (err) {
-            solver.status = "error"
             solver.error = err instanceof Error ? err.message : String(err)
+            this.setSolverStatus(solver, "error")
             await this.appendSolverStartupLog(id, `[launch-error] ${solver.error}`)
             this.clearSolverRuntimeState(id)
             throw err
@@ -942,21 +959,33 @@ export class RuntimeManager {
     async stopSolver(solverId: string) {
         const solver = this.solvers.get(solverId)
         if (!solver) throw new Error(`Solver ${solverId} not found`)
+        if (solver.status === "stopped" && !this.procs.has(solverId)) return
 
-        solver.status = "stopping"
+        const previousStatus = solver.status
+        this.setSolverStatus(solver, "stopping")
 
         try {
-            const stop = Bun.spawn(["docker", "stop", solver.containerId], {
-                stdout: "ignore",
-                stderr: "ignore",
-            })
-            await stop.exited
-        } catch {
-            // Container may already be stopped
-        } finally {
-            solver.status = "stopped"
-            this.clearSolverRuntimeState(solverId)
+            const exitCode = await this.stopContainer(solver.containerId)
+            if (exitCode !== 0) throw new Error(`Failed to stop solver ${solverId}: docker stop exited with code ${exitCode}`)
+        } catch (error) {
+            if (this.procs.get(solverId)?.exitCode === null) {
+                solver.error = error instanceof Error ? error.message : String(error)
+                this.setSolverStatus(solver, previousStatus)
+                throw error
+            }
+            // A process that already exited needs no further Docker stop.
         }
+        delete solver.error
+        this.clearSolverRuntimeState(solverId)
+        this.setSolverStatus(solver, "stopped")
+    }
+
+    private async stopContainer(containerId: string): Promise<number> {
+        const stop = Bun.spawn(["docker", "stop", containerId], {
+            stdout: "ignore",
+            stderr: "ignore",
+        })
+        return stop.exited
     }
 
     /** List all tracked solver instances */
@@ -1193,10 +1222,10 @@ export class RuntimeManager {
                     rejectInit(new Error("solver process exited before init response"))
                 }
                 const solver = this.solvers.get(solverId)
-                if (solver && (solver.status === "running" || solver.status === "starting" || solver.status === "stopping")) {
-                    solver.status = solver.error ? "error" : "stopped"
-                }
                 this.clearSolverRuntimeState(solverId)
+                if (solver && (solver.status === "running" || solver.status === "starting" || solver.status === "stopping")) {
+                    this.setSolverStatus(solver, solver.error ? "error" : "stopped")
+                }
             }
         })().catch((error) => {
             console.error(`[runtime:${solverId}] stdout loop crashed`, formatError(error))

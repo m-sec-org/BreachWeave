@@ -1,4 +1,12 @@
 import type { IdeaStatus, MemoryKind } from "../../../challenge/memory"
+import type { ChallengeSubmissionLogRecord } from "../../../challenge/store"
+
+export interface SolverAssignmentReviewContext {
+    task: string
+    submissions: ChallengeSubmissionLogRecord[]
+    submission_ids: string[]
+    review_required: boolean
+}
 
 export interface ObserverToolLog {
     tool_name: string

@@ -228,7 +228,8 @@ describe("challenge host bridge notifications", () => {
     test("completion check includes the current solver assignment independently of the challenge", async () => {
         const isChallengeCompleted = mock(async () => false)
         const isSolverTaskCompleted = mock(async () => true)
-        const handler = createChallengeHostBridgeHandler({ isChallengeCompleted, isSolverTaskCompleted } as unknown as ChallengeManager)
+        const getSolverReviewContext = mock(async () => ({ solver_review_pending: true, solver_resume_required: false, solver_stop_approved: false }))
+        const handler = createChallengeHostBridgeHandler({ isChallengeCompleted, isSolverTaskCompleted, getSolverReviewContext } as unknown as ChallengeManager)
 
         const result = await handler.handle(createContext({ action: "challenge_is_completed" }))
 
@@ -236,7 +237,7 @@ describe("challenge host bridge notifications", () => {
         expect(isSolverTaskCompleted).toHaveBeenCalledWith("chal-1", "solver-1")
         expect(result).toEqual({
             handled: true,
-            data: { challenge_id: "chal-1", is_completed: false, solver_task_completed: true },
+            data: { challenge_id: "chal-1", is_completed: false, solver_task_completed: true, solver_review_pending: true, solver_resume_required: false, solver_stop_approved: false },
         })
     })
 })

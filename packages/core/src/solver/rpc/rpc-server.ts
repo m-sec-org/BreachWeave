@@ -15,6 +15,7 @@
 
 import type { AgentSession, AgentSessionEvent } from "@earendil-works/pi-coding-agent"
 import { createSolverSession } from "../session"
+import { retryPendingSolverReview } from "../extension/challenge-observer/observer-loop"
 import type { SolverInitPayload, RpcCommand, RpcResponse } from "./rpc-types"
 import { serializeJsonLine, attachJsonlLineReader } from "./jsonl"
 import { requestHostBridge, resolveHostBridgeResponse } from "../../challenge/host-bridge-client"
@@ -27,12 +28,27 @@ export interface RunSolverRpcOptions {
 interface ChallengeRpcCompletionState {
     is_completed: boolean
     solver_task_completed?: boolean
+    solver_review_pending?: boolean
+    solver_resume_required?: boolean
+    solver_stop_approved?: boolean
 }
 
 interface ChallengeRpcCompletionOptions {
     readCompletion?: () => Promise<ChallengeRpcCompletionState>
     exit?: () => void
+    retryDelayMs?: number
+    retryPendingReview?: () => Promise<void>
 }
+
+interface ChallengeRpcAssignmentState {
+    awaitingReview: boolean
+    generation: number
+    resumedReviewIds: Set<string>
+    scheduleRetry: () => void
+    cancelRetry?: () => void
+}
+
+const CHALLENGE_ASSIGNMENT_STATES = new WeakMap<AgentSession, ChallengeRpcAssignmentState>()
 
 // ── Helpers ──
 
@@ -77,22 +93,46 @@ export function attachChallengeRpcCompletion(
     session: AgentSession,
     init: Pick<SolverInitPayload, "challengeId">,
     options: ChallengeRpcCompletionOptions = {},
-): void {
-    if (!init.challengeId?.trim() || process.env[AUTHORIZED_SOLVER_ENV] === "1") return
+): () => void {
+    if (!init.challengeId?.trim() || process.env[AUTHORIZED_SOLVER_ENV] === "1") return () => undefined
     const readCompletion = options.readCompletion ?? (() => requestHostBridge<ChallengeRpcCompletionState>("challenge_is_completed", {}))
     const exit = options.exit ?? (() => process.exit(0))
+    const retryPendingReview = options.retryPendingReview ?? retryPendingSolverReview
+    const state: ChallengeRpcAssignmentState = { awaitingReview: false, generation: 0, resumedReviewIds: new Set(), scheduleRetry }
+    CHALLENGE_ASSIGNMENT_STATES.set(session, state)
     let checking = false
     let finished = false
 
-    session.subscribe(async (event) => {
-        // agent_settled follows all awaited extension agent_end handlers, including
-        // the Observer's final review. Exiting at agent_end would lose findings.
-        if (event.type !== "agent_settled" || checking || finished) return
+    function scheduleRetry() {
+        if (finished || state.cancelRetry || !state.awaitingReview) return
+        const timer = setTimeout(() => {
+            state.cancelRetry = undefined
+            void checkCompletion(true)
+        }, options.retryDelayMs ?? 10000)
+        timer.unref()
+        state.cancelRetry = () => {
+            clearTimeout(timer)
+            state.cancelRetry = undefined
+        }
+    }
+
+    async function checkCompletion(retryAudit = false) {
+        if (checking || finished) return
+        state.cancelRetry?.()
         checking = true
+        const generation = state.generation
         try {
+            if (retryAudit) await retryPendingReview()
             const completion = await readCompletion()
-            if (completion.is_completed !== true && completion.solver_task_completed !== true) return
-            if (session.isStreaming || session.isCompacting || session.pendingMessageCount > 0) return
+            // A Planner resume can arrive while the host is answering this check.
+            if (generation !== state.generation) return
+            if (completion.solver_review_pending === true || completion.solver_stop_approved === true
+                || (completion.solver_task_completed === true && completion.solver_resume_required !== true)) {
+                state.awaitingReview = true
+                session.clearQueue()
+            }
+            if (completion.solver_stop_approved !== true) return
+            if (session.isStreaming || session.isCompacting) return
             finished = true
             session.dispose()
             exit()
@@ -100,8 +140,34 @@ export function attachChallengeRpcCompletion(
             console.error(`[solver] completion check failed: ${error instanceof Error ? error.message : String(error)}`)
         } finally {
             checking = false
+            scheduleRetry()
         }
+    }
+
+    const unsubscribe = session.subscribe(async (event) => {
+        if (event.type === "tool_execution_end" && !event.isError && event.toolName === "challenge_submit_report") {
+            const result: unknown = event.result
+            if (result && typeof result === "object" && "details" in result) {
+                const details = result.details
+                if (details && typeof details === "object" && "solver_task_completed" in details && details.solver_task_completed === true) {
+                    state.awaitingReview = true
+                    state.generation += 1
+                    session.clearQueue()
+                    scheduleRetry()
+                }
+            }
+        }
+        // The Observer's final audit runs before agent_settled. Reporting checklist
+        // coverage alone never authorizes exit; only the Planner can approve stop.
+        if (event.type === "agent_settled") await checkCompletion()
     })
+
+    return () => {
+        finished = true
+        state.cancelRetry?.()
+        unsubscribe()
+        CHALLENGE_ASSIGNMENT_STATES.delete(session)
+    }
 }
 
 // ── Server ──
@@ -151,6 +217,7 @@ export async function runSolverRpc(options?: RunSolverRpcOptions): Promise<never
 
     session.prompt(init.task, { source: "rpc" }).catch((err) => {
         output(error(undefined, "solver", err instanceof Error ? err.message : String(err)))
+        if (CHALLENGE_ASSIGNMENT_STATES.get(session)?.awaitingReview) return
         session.dispose()
         process.exit(1)
     })
@@ -180,6 +247,10 @@ async function handleInputLine(session: AgentSession, line: string) {
 
 export async function handleCommand(session: AgentSession, cmd: RpcCommand): Promise<RpcResponse> {
     const id = cmd.id
+    const assignment = CHALLENGE_ASSIGNMENT_STATES.get(session)
+    if (assignment?.awaitingReview && (cmd.type === "prompt" || cmd.type === "steer" || cmd.type === "follow_up")) {
+        return error(id, cmd.type, "Assignment report submitted; awaiting Observer audit and Planner decision")
+    }
 
     switch (cmd.type) {
         // Prompting
@@ -196,6 +267,34 @@ export async function handleCommand(session: AgentSession, cmd: RpcCommand): Pro
         case "follow_up": {
             await session.followUp(cmd.message)
             return success(id, "follow_up")
+        }
+
+        case "resume_assignment": {
+            if (assignment?.resumedReviewIds.has(cmd.reviewId)) return success(id, "resume_assignment")
+            session.clearQueue()
+            if (assignment) {
+                assignment.awaitingReview = false
+                assignment.generation += 1
+                assignment.resumedReviewIds.add(cmd.reviewId)
+                assignment.cancelRetry?.()
+            }
+            const generation = assignment?.generation
+            session.sendCustomMessage({
+                customType: "planner-assignment-resume",
+                content: [{ type: "text", text: cmd.message }],
+                display: true,
+                details: { reviewId: cmd.reviewId },
+            }, { triggerTurn: true }).catch((e: Error) => {
+                // sendCustomMessage can reject during preparation or after an entire
+                // turn. Never roll back a newer report or Planner decision.
+                if (assignment && assignment.generation === generation && CHALLENGE_ASSIGNMENT_STATES.get(session) === assignment) {
+                    assignment.awaitingReview = true
+                    assignment.resumedReviewIds.delete(cmd.reviewId)
+                    assignment.scheduleRetry()
+                }
+                output(error(id, "resume_assignment", e.message))
+            })
+            return success(id, "resume_assignment")
         }
 
         case "abort": {

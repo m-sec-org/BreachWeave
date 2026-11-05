@@ -304,6 +304,28 @@ describe("challenge-manager local api", () => {
         expect(await manager.isSolverTaskCompleted(challengeId, "solver-b-follow-up")).toBe(true)
         expect(await manager.isSolverTaskCompleted(challengeId, "unknown-solver")).toBe(false)
 
+        const solverIds = ["solver-a", "solver-b", "solver-b-follow-up"]
+        manager.attachRuntime({
+            listAll: mock(async () => solverIds.map((id) => ({ id, challengeId, status: "stopped" }))),
+        } as never)
+        manager.requestSolverReviewPlanner = mock(() => {})
+        for (const solverId of solverIds) {
+            const context = await manager.getSolverReviewContext(challengeId, solverId)
+            const audit = await manager.submitSolverReview(challengeId, solverId, context.submission_ids, {
+                summary: "Checked the assigned test against its execution evidence and recorded legitimate blockers.",
+                checklist: context.submissions.flatMap((submission) => submission.test_results!.map((result) => ({
+                    asset_hash: submission.asset_hash,
+                    test_item: result.test_item,
+                    verdict: result.status === "completed" ? "verified" as const : "blocked" as const,
+                    evidence: result.evidence,
+                }))),
+                concerns: [],
+                remaining_work: solverId === "solver-b" ? ["B requires valid credentials and is assigned to the follow-up solver."] : [],
+                suggested_decision: "stop",
+            })
+            await manager.decideSolverReview(challengeId, audit.id, "stop", "The assignment is verified or legitimately blocked and handed off.")
+        }
+
         await completeAssetTool.execute("review-completed-work", {
             challengeId,
             assetHash,
@@ -356,10 +378,12 @@ describe("challenge-manager local api", () => {
         expect(await manager.isSolverTaskCompleted(challengeId, "reporting-solver")).toBe(true)
         const finalIdea = await manager.addIdea(challengeId, { content: "The final observer found an import authorization candidate for planner review." })
         let solverActive = true
+        const stopSolver = mock(async () => { solverActive = false })
         manager.attachRuntime({
             listAll: mock(async () => [{ id: "reporting-solver", challengeId, task, status: solverActive ? "running" : "stopped", createdAt: Date.now() }]),
-            stopSolver: mock(async () => {}),
+            stopSolver,
         } as never)
+        manager.requestSolverReviewPlanner = mock(() => {})
         const snapshot = await (manager as unknown as { buildPlannerSnapshot: (reason: string, challengeId: string) => Promise<unknown> }).buildPlannerSnapshot("final-observer-gate", challengeId)
         expect(snapshot).toMatchObject({ challenges: [{
             sharedIdeas: expect.arrayContaining([expect.objectContaining({ id: finalIdea.item.id })]),
@@ -371,7 +395,20 @@ describe("challenge-manager local api", () => {
         await expect(completeAsset.execute("close-before-observer-exit", review)).rejects.toThrow("wait for assigned solvers to finish their final observer review")
         expect(await manager.isChallengeCompleted(challengeId)).toBe(false)
         solverActive = false
-        await completeAsset.execute("close-after-observer-exit", review)
+        await expect(completeAsset.execute("close-without-audit", review)).rejects.toThrow("requires an Observer audit and Planner stop decision")
+        solverActive = true
+        const context = await manager.getSolverReviewContext(challengeId, "reporting-solver")
+        const audit = await manager.submitSolverReview(challengeId, "reporting-solver", context.submission_ids, {
+            summary: "The assigned test is verified with execution evidence; the import candidate belongs to a later assignment.",
+            checklist: [{ asset_hash: assetHash, test_item: "A", verdict: "verified", evidence: "A reproducible request and response complete the assignment." }],
+            concerns: [],
+            remaining_work: ["Planner may assign the import authorization candidate separately."],
+            suggested_decision: "stop",
+        })
+        await manager.decideSolverReview(challengeId, audit.id, "stop", "The assigned task is complete; the extra candidate needs no follow-up in this assignment.")
+        expect(stopSolver).toHaveBeenCalledWith("reporting-solver")
+        expect(solverActive).toBe(false)
+        await completeAsset.execute("close-after-planner-stop", review)
         expect(await manager.isChallengeCompleted(challengeId)).toBe(true)
     })
 
@@ -1225,6 +1262,28 @@ describe("challenge-manager local api", () => {
         })
     })
 
+    test("appendMemory skips running solvers whose assignment is already complete", async () => {
+        const sendCommand = mock(() => {})
+        manager.attachRuntime({
+            list: () => [
+                { id: "solver-complete", challengeId: "chal-1", status: "running" },
+                { id: "solver-active", challengeId: "chal-1", status: "running" },
+            ],
+            sendCommand,
+        } as never)
+        ;(manager as unknown as { isSolverTaskCompleted: (challengeId: string, solverId: string) => Promise<boolean> }).isSolverTaskCompleted = async (_challengeId, solverId) => solverId === "solver-complete"
+
+        await manager.appendMemory({
+            challengeId: "chal-1",
+            kind: "fact",
+            content: "new shared fact",
+            source: "observer:solver-a",
+        })
+
+        expect(sendCommand).toHaveBeenCalledTimes(1)
+        expect(sendCommand).toHaveBeenCalledWith("solver-active", expect.objectContaining({ type: "follow_up" }))
+    })
+
     test("addIdea broadcasts challenge idea updates to running solvers on same challenge", async () => {
         const sendCommand = mock(() => {})
         manager.attachRuntime({
@@ -1553,6 +1612,71 @@ describe("challenge-manager local api", () => {
             solverHandoff: "repeat the same target",
         })).rejects.toThrow("asset/test assignment overlaps a solver already launched in this planner round")
         expect(launch).toHaveBeenCalledTimes(1)
+    })
+
+    test("planner launch solver fans multiple assets out to parallel single-asset solvers", async () => {
+        const firstAsset = "https://first-fanout.example"
+        const secondAsset = "https://second-fanout.example"
+        const thirdAsset = "https://third-fanout.example"
+        await manager.createChallenge(buildTestChallenge({
+            id: "mock-planner-fanout",
+            title: "mock-planner-fanout",
+            instance_status: "stopped",
+            assets: { urls: [assetRecord(firstAsset, false), assetRecord(secondAsset, false), assetRecord(thirdAsset, false)], ips: [] },
+        }))
+        const launch = mock(async (promptName: string, task: string, env?: Record<string, string>, options?: { solverId?: string }) => ({
+            id: options?.solverId ?? "solver-fanout",
+            containerId: options?.solverId ?? "solver-fanout",
+            name: options?.solverId ?? "solver-fanout",
+            promptName,
+            task,
+            challengeId: env?.TCH_CHALLENGE_ID,
+            status: "running" as const,
+            createdAt: Date.now(),
+        }))
+        manager.attachRuntime({ listAll: mock(async () => []), launch } as never)
+
+        const snapshot = await (manager as unknown as { buildPlannerSnapshot: (reason: string, challengeId?: string) => Promise<{ availableSolverPrompts: Array<{ name: string }>; constraints: { maxSolvers: number; activeSolvers: number } }> }).buildPlannerSnapshot(
+            "test",
+            "mock-planner-fanout",
+        )
+        snapshot.availableSolverPrompts = [{ name: "pentest-orchestrator" }]
+        snapshot.constraints.maxSolvers = 2
+        snapshot.constraints.activeSolvers = 0
+        const tools = (manager as unknown as { createPlannerTools: (snapshot: unknown) => Array<{ name: string; execute: (_toolCallId: string, params: Record<string, unknown>) => Promise<unknown> }> }).createPlannerTools(snapshot)
+        const launchTool = tools.find((tool) => tool.name === "planner_launch_solver")!
+        const result = await launchTool.execute("fanout-call", {
+            challengeId: "mock-planner-fanout",
+            promptName: "pentest-orchestrator",
+            entrypoints: [
+                { asset_hash: hashChallengeAsset(firstAsset), asset: firstAsset },
+                { asset_hash: hashChallengeAsset(secondAsset), asset: secondAsset },
+            ],
+            testItems: ["Verify login controls"],
+            solverHandoff: "Test only the assigned asset and item.",
+        }) as { details: Array<{ id: string }> }
+
+        expect(launch).toHaveBeenCalledTimes(2)
+        expect(result.details).toHaveLength(2)
+        expect(new Set(result.details.map((solver) => solver.id)).size).toBe(2)
+        const launchedTasks = launch.mock.calls.map((call) => call[1] as string)
+        const firstTask = launchedTasks.find((task) => task.includes(firstAsset))
+        const secondTask = launchedTasks.find((task) => task.includes(secondAsset))
+        expect(firstTask).toContain(`目标入口:\n- [${hashChallengeAsset(firstAsset)}] ${firstAsset}`)
+        expect(firstTask).not.toContain(secondAsset)
+        expect(firstTask).toContain("本次测试项:\n- Verify login controls")
+        expect(secondTask).toContain(`目标入口:\n- [${hashChallengeAsset(secondAsset)}] ${secondAsset}`)
+        expect(secondTask).not.toContain(firstAsset)
+        expect(secondTask).toContain("本次测试项:\n- Verify login controls")
+
+        await expect(launchTool.execute("fanout-over-capacity", {
+            challengeId: "mock-planner-fanout",
+            promptName: "pentest-orchestrator",
+            entrypoints: [{ asset_hash: hashChallengeAsset(thirdAsset), asset: thirdAsset }],
+            testItems: ["Verify login controls"],
+            solverHandoff: "This must wait for a slot.",
+        })).rejects.toThrow("not enough solver slots")
+        expect(launch).toHaveBeenCalledTimes(2)
     })
 
     test("solver launch rejects active asset overlap but allows a disjoint asset", async () => {

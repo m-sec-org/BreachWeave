@@ -3,6 +3,7 @@ import { AUTHORIZED_SOLVER_ENV, CHALLENGE_ENV_CHALLENGE_ID, CHALLENGE_ENV_PROJEC
 import type { IdeaStatus, MemoryKind } from "./memory"
 import type { ChallengeTestResult } from "./store"
 import type { HostBridgeHandleContext, HostBridgeHandleResult, HostBridgeHandler, SolverInstance } from "../runtime/types"
+import { parseSolverAssignmentReview } from "./solver-review"
 
 function getObjectValue(value: unknown): Record<string, unknown> {
     if (!value || typeof value !== "object" || Array.isArray(value)) return {}
@@ -119,13 +120,20 @@ function sendHintToSolver(context: HostBridgeHandleContext, solverId: string, hi
     sendSteerToSolver(context, solverId, `系统同步：赛题 hint 已更新。\n- 立即吸收这条 hint，并结合当前路线评估是否需要转向。\n- 如果它改变了攻击面理解，优先刷新 memory_list / idea_list。\n- hint:\n${message}`)
 }
 
-function broadcastHintToChallengeSolvers(context: HostBridgeHandleContext, challengeId: string, hintContent: string): void {
+async function broadcastHintToChallengeSolvers(challengeManager: ChallengeManager, context: HostBridgeHandleContext, challengeId: string, hintContent: string): Promise<void> {
     const targetChallengeId = challengeId.trim()
     const message = hintContent.trim()
     if (!targetChallengeId || !message) return
-    for (const solver of context.listSolvers?.() ?? []) {
-        if (solver.challengeId !== targetChallengeId) continue
-        if (solver.status !== "running") continue
+    const candidates = (context.listSolvers?.() ?? []).filter((solver) => solver.challengeId === targetChallengeId && solver.status === "running")
+    const recipients = await Promise.all(candidates.map(async (solver) => {
+        try {
+            return await challengeManager.isSolverTaskCompleted(targetChallengeId, solver.id) ? undefined : solver
+        } catch {
+            return solver
+        }
+    }))
+    for (const solver of recipients) {
+        if (!solver) continue
         try {
             sendHintToSolver(context, solver.id, message)
         } catch {
@@ -165,7 +173,7 @@ async function handleChallengeAction(
             }
             const result = await challengeManager.getHint(challengeId)
             if (result.remote.hint_content?.trim()) {
-                broadcastHintToChallengeSolvers(context, challengeId, result.remote.hint_content)
+                await broadcastHintToChallengeSolvers(challengeManager, context, challengeId, result.remote.hint_content)
             }
             return { handled: true, data: result.remote }
         }
@@ -192,7 +200,31 @@ async function handleChallengeAction(
             await assertBoundProject(challengeManager, challengeId, getSolverEnvValue)
             const isCompleted = await challengeManager.isChallengeCompleted(challengeId)
             const solverTaskCompleted = await challengeManager.isSolverTaskCompleted(challengeId, solverId)
-            return { handled: true, data: { challenge_id: challengeId, is_completed: isCompleted, solver_task_completed: solverTaskCompleted } }
+            const context = await challengeManager.getSolverReviewContext(challengeId, solverId)
+            if (context.current_review && !context.current_review.decision) challengeManager.requestSolverReviewPlanner(challengeId)
+            if (context.current_review?.decision?.action === "continue" && getSolver?.()?.status === "running") {
+                const decision = context.current_review.decision
+                await challengeManager.decideSolverReview(challengeId, context.current_review.id, "continue", decision.rationale, decision.instructions)
+            }
+            return { handled: true, data: {
+                challenge_id: challengeId, is_completed: isCompleted, solver_task_completed: solverTaskCompleted,
+                solver_review_pending: context.solver_review_pending,
+                solver_resume_required: context.solver_resume_required,
+                solver_stop_approved: context.solver_stop_approved,
+            } }
+        }
+        case "challenge_get_solver_review_context": {
+            const challengeId = getRequiredChallengeId(getSolverEnvValue)
+            await assertBoundProject(challengeManager, challengeId, getSolverEnvValue)
+            return { handled: true, data: await challengeManager.getSolverReviewContext(challengeId, solverId) }
+        }
+        case "challenge_submit_solver_review": {
+            const challengeId = getRequiredChallengeId(getSolverEnvValue)
+            await assertBoundProject(challengeManager, challengeId, getSolverEnvValue)
+            const review = parseSolverAssignmentReview(data.review)
+            if (!Array.isArray(data.submission_ids) || data.submission_ids.some((id) => typeof id !== "string" || !id.trim())) throw new Error("submission_ids is required")
+            const result = await challengeManager.submitSolverReview(challengeId, solverId, data.submission_ids as string[], review)
+            return { handled: true, data: result }
         }
         case "challenge_memory_list": {
             const challengeId = getRequiredChallengeId(getSolverEnvValue)

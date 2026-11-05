@@ -67,10 +67,12 @@ describe("challenge solver continuation", () => {
         expect(harness.sendMessage).toHaveBeenCalledTimes(1)
     })
 
-    test("append prompt ends completed assignments and hands extra discoveries to the planner", () => {
+    test("append prompt pauses for Observer audit and Planner decision after coverage", () => {
         const prompt = buildChallengeExtensionAppendPrompt()
 
-        expect(prompt).toContain("本次分工完成并提交报告后结束")
+        expect(prompt).toContain("等待 Observer")
+        expect(prompt).toContain("审查遗漏、证据真实性、偷懒作弊和遗留待办")
+        expect(prompt).toContain("由 Planner 结束 solver 并释放资源")
         expect(prompt).toContain("`test_results`")
         expect(prompt).toContain("`discoveries`")
         expect(prompt).not.toContain("剩余 flag")
@@ -131,5 +133,51 @@ describe("challenge solver continuation", () => {
 
         expect(await solver.emit("tool_call", { toolName: "bash" })).toMatchObject({ block: true })
         expect(await independentSession.emit("tool_call", { toolName: "memory_add" })).toBeUndefined()
+    })
+
+    test("only the Planner resume signal unlocks reported assignment execution", async () => {
+        const harness = createContinuationHarness()
+        attachChallengeContinuation(harness.pi, {
+            readCompletion: async () => ({ is_completed: false, solver_task_completed: true, solver_resume_required: true }),
+        })
+        await harness.emit("tool_execution_end", {
+            toolName: "challenge_submit_report", isError: false,
+            result: { details: { solver_task_completed: true } },
+        })
+        for (const message of [
+            { role: "user", content: "协作同步" },
+            { role: "custom", customType: "challenge-continuation" },
+            { role: "assistant", customType: "planner-assignment-resume" },
+        ]) {
+            await harness.emit("message_end", { message })
+            expect(await harness.emit("tool_call", { toolName: "bash" })).toMatchObject({ block: true })
+        }
+        await harness.endTurn()
+        expect(harness.sendMessage).not.toHaveBeenCalled()
+
+        await harness.emit("message_end", { message: { role: "custom", customType: "planner-assignment-resume" } })
+
+        expect(await harness.emit("tool_call", { toolName: "bash" })).toBeUndefined()
+        await harness.endTurn()
+        expect(harness.sendMessage).toHaveBeenCalledTimes(1)
+        await harness.emit("tool_execution_end", {
+            toolName: "challenge_submit_report", isError: false,
+            result: { details: { solver_task_completed: true } },
+        })
+        expect(await harness.emit("tool_call", { toolName: "bash" })).toMatchObject({ block: true })
+    })
+
+    test("pauses auto continuation while the host awaits Observer review or Planner stop", async () => {
+        for (const state of [
+            { is_completed: false, solver_review_pending: true },
+            { is_completed: false, solver_stop_approved: true },
+        ]) {
+            const harness = createContinuationHarness()
+            attachChallengeContinuation(harness.pi, { readCompletion: async () => state })
+
+            await harness.endTurn()
+
+            expect(harness.sendMessage).not.toHaveBeenCalled()
+        }
     })
 })

@@ -26,9 +26,7 @@ export function challengeObserverExtension(options?: ChallengeObserverExtensionO
         }
 
         attachChallengeContinuation(pi)
-        if (observerEnabled) {
-            attachObserverLoop(pi, { observerModel })
-        }
+        attachObserverLoop(pi, { observerModel, periodicEnabled: observerEnabled })
     }
 
     return {

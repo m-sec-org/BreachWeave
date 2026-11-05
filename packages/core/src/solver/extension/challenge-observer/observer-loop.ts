@@ -29,9 +29,15 @@ const SESSION_TASK_SECTION_HEADINGS = new Set([
 
 type ObserverReviewRunner = typeof runSolverObserverReview
 type SessionContextBuilder = typeof defaultBuildSessionContext
+let retryPendingReview: (() => Promise<void>) | undefined
+
+export async function retryPendingSolverReview(): Promise<void> {
+    await retryPendingReview?.()
+}
 
 interface ObserverLoopOptions {
     observerModel?: string
+    periodicEnabled?: boolean
     runReview?: ObserverReviewRunner
     buildSessionContext?: SessionContextBuilder
 }
@@ -284,7 +290,9 @@ export function attachObserverLoop(pi: ExtensionAPI, options: ObserverLoopOption
     const challengeIdText = challengeId
     const runReview = options.runReview ?? runSolverObserverReview
     const buildSessionContext = options.buildSessionContext ?? defaultBuildSessionContext
+    const periodicEnabled = options.periodicEnabled !== false
     let reviewDrain = Promise.resolve()
+    let finalReviewFailed = false
 
     const roundStateReady = updateObserverState((state) => ({
         nextState: {
@@ -310,6 +318,7 @@ export function attachObserverLoop(pi: ExtensionAPI, options: ObserverLoopOption
             try {
                 await runReview(challengeIdText, next, {
                     observerModel: options.observerModel,
+                    periodicEnabled,
                     sendCorrectionNotice: async (message) => {
                         if (!(await shouldSendEfficiencyReminder(next, message))) {
                             return false
@@ -318,27 +327,40 @@ export function attachObserverLoop(pi: ExtensionAPI, options: ObserverLoopOption
                         return true
                     },
                 })
+                if (next.reason === "agent_end") finalReviewFailed = false
             } catch (error) {
+                if (next.reason === "agent_end") {
+                    finalReviewFailed = true
+                    await enqueueObserverReview(next)
+                    throw error
+                }
                 console.error(`[observer] review failed: ${error instanceof Error ? error.message : String(error)}`)
             }
         }
     }
 
+    retryPendingReview = async () => {
+        if (!finalReviewFailed) return
+        const retry = reviewDrain.then(drainReviewQueue)
+        reviewDrain = retry.catch((error) => {
+            console.error(`[observer] retry failed: ${error instanceof Error ? error.message : String(error)}`)
+        })
+        await retry
+    }
+
     function enqueueReview(payload: ObserverReviewPayload): Promise<void> {
         // Persist immediately, then serialize drains so agent_end can await
         // both an active periodic review and its own final review.
-        const enqueued = enqueueObserverReview(payload).catch((error) => {
-            console.error(`[observer] enqueue failed: ${error instanceof Error ? error.message : String(error)}`)
-        })
-        reviewDrain = reviewDrain
+        const enqueued = enqueueObserverReview(payload)
+        const drain = reviewDrain
             .then(async () => {
                 await enqueued
                 await drainReviewQueue()
             })
-            .catch((error) => {
-                console.error(`[observer] drain failed: ${error instanceof Error ? error.message : String(error)}`)
-            })
-        return reviewDrain
+        reviewDrain = drain.catch((error) => {
+            console.error(`[observer] drain failed: ${error instanceof Error ? error.message : String(error)}`)
+        })
+        return drain
     }
 
     pi.on("tool_execution_start", async (event) => {
@@ -395,7 +417,7 @@ export function attachObserverLoop(pi: ExtensionAPI, options: ObserverLoopOption
                 tool_logs: state.current_round_tool_logs,
             }
             const periodicDue = nextRound % OBSERVER_REVIEW_EVERY_ROUNDS === 0
-            const reviewReason = state.force_review_reason ?? (periodicDue ? "periodic" : undefined)
+            const reviewReason = periodicEnabled ? state.force_review_reason ?? (periodicDue ? "periodic" : undefined) : undefined
             return {
                 nextState: {
                     ...state,
@@ -413,16 +435,12 @@ export function attachObserverLoop(pi: ExtensionAPI, options: ObserverLoopOption
         const reviewRounds = recentRounds.slice(-OBSERVER_REVIEW_WINDOW_ROUNDS)
         if (reviewRounds.length === 0) return
         if (!reviewRounds.some((item) => item.tool_logs.length > 0 || item.assistant_summary.trim().length > 0)) return
-        void enqueueReview(buildObserverPayload(ctx, reviewReason, reviewRounds, buildSessionContext))
+        void enqueueReview(buildObserverPayload(ctx, reviewReason, reviewRounds, buildSessionContext)).catch(() => {})
     })
 
     pi.on("agent_end", async (_event, ctx) => {
         await roundStateReady
         const reviewRounds = await loadRecentObserverRounds(OBSERVER_REVIEW_WINDOW_ROUNDS)
-        if (reviewRounds.length === 0) {
-            await reviewDrain
-            return
-        }
         await enqueueReview(buildObserverPayload(ctx, "agent_end", reviewRounds, buildSessionContext))
     })
 

@@ -33,7 +33,7 @@ type SubmitReportInput = Static<typeof SubmitReportParams>
 export const challengeSubmitReportTool = defineTool({
     name: "challenge_submit_report",
     label: "Challenge Submit Report",
-    description: "Submit a detailed report and assigned test-item outcomes for one asset. Hand additional discoveries to the planner, then stop after completing this solver's assignment.",
+    description: "Submit a detailed report and assigned test-item outcomes for one asset. Once all assigned reports are submitted, pause for Observer evidence review and the Planner's continue/stop decision.",
     promptSnippet: "challenge_submit_report: report one exact asset_hash with test_results and discoveries for the planner",
     parameters: SubmitReportParams,
     async execute(_toolCallId, params: SubmitReportInput) {
@@ -55,7 +55,7 @@ export const challengeSubmitReportTool = defineTool({
             content: [{
                 type: "text",
                 text: details.solver_task_completed
-                    ? `资产 ${params.asset_hash} 的报告已提交。本次分工报告齐全，请结束；剩余资产由 planner 安排。`
+                    ? `资产 ${params.asset_hash} 的报告已提交。本次分工报告齐全，请暂停；Observer 将核对清单、执行证据与遗留项，再由 planner 决定继续补做或结束 solver。`
                     : `submitted report for asset hash: ${params.asset_hash}, ${completion}`,
             }],
             details,

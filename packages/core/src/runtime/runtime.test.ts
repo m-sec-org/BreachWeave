@@ -9,6 +9,8 @@ import { ChallengeManager } from "../challenge/manager"
 import { createChallengeHostBridgeHandler } from "../challenge/host-bridge-handler"
 import type { ChallengeInfoRecord } from "../challenge/store"
 import type { ConfigManager } from "../config/index"
+import type { SolverInstance } from "./types"
+import type { Subprocess } from "bun"
 import { solverDir } from "./types"
 import { createAuthorizedModelFetch } from "../solver/authorized-model-fetch"
 import { stream as streamOpenAICompletions } from "@earendil-works/pi-ai/api/openai-completions"
@@ -88,6 +90,129 @@ describe("hashDockerfileContent", () => {
 
     test("returns different hashes for different content", () => {
         expect(hashDockerfileContent("FROM kali\n")).not.toBe(hashDockerfileContent("FROM kali\nRUN echo test\n"))
+    })
+})
+
+describe("RuntimeManager status notifications", () => {
+    test.each([
+        { errorMessage: undefined, expectedStatus: "stopped" },
+        { errorMessage: "model request failed", expectedStatus: "error" },
+    ] as const)("notifies subscribers when stdout closes with $expectedStatus", async ({ errorMessage, expectedStatus }) => {
+        const { runtime } = await createRuntimeManager()
+        const solver: SolverInstance = {
+            id: "solver-status",
+            containerId: "solver-status",
+            name: "solver-status",
+            promptName: "test",
+            task: "test",
+            status: "running",
+            createdAt: Date.now(),
+        }
+        const manager = runtime as unknown as {
+            solvers: Map<string, SolverInstance>
+            readStream(solverId: string, proc: Subprocess<"pipe", "pipe", "pipe">): Promise<void>
+        }
+        manager.solvers.set(solver.id, solver)
+        const eventStatuses: SolverInstance["status"][] = []
+        runtime.onEvent(() => eventStatuses.push(solver.status))
+        const stopped = new Promise<SolverInstance["status"]>((resolve) => {
+            runtime.onStatusChange((solverId, status) => {
+                expect(solverId).toBe(solver.id)
+                resolve(status)
+            })
+        })
+        const lines = [
+            { type: "response", command: "init", success: true },
+            {
+                type: "agent_end",
+                messages: [{ role: "assistant", content: [], stopReason: errorMessage ? "error" : "end_turn", errorMessage }],
+            },
+        ]
+        const proc = {
+            stdout: new ReadableStream<Uint8Array>({
+                start(controller) {
+                    controller.enqueue(new TextEncoder().encode(lines.map((line) => JSON.stringify(line)).join("\n") + "\n"))
+                    controller.close()
+                },
+            }),
+            stderr: new ReadableStream<Uint8Array>({ start(controller) { controller.close() } }),
+        } as Subprocess<"pipe", "pipe", "pipe">
+
+        await manager.readStream(solver.id, proc)
+
+        expect(await stopped).toBe(expectedStatus)
+        expect(solver.status).toBe(expectedStatus)
+        expect(eventStatuses).toEqual(["running"])
+        expect(solver.error).toBe(errorMessage)
+    })
+
+    test.each(["exit-code", "spawn-error"] as const)("a failed Docker stop (%s) preserves a live solver until retry succeeds", async (failure) => {
+        const { runtime } = await createRuntimeManager()
+        const solver: SolverInstance = {
+            id: "solver-stop-failure",
+            containerId: "solver-stop-failure",
+            name: "solver-stop-failure",
+            promptName: "test",
+            task: "test",
+            status: "running",
+            createdAt: Date.now(),
+        }
+        const write = mock(() => 1)
+        const proc = { exitCode: null, stdin: { write } } as unknown as Subprocess<"pipe", "pipe", "pipe">
+        const manager = runtime as unknown as {
+            solvers: Map<string, SolverInstance>
+            procs: Map<string, Subprocess<"pipe", "pipe", "pipe">>
+            solverEnvs: Map<string, Record<string, string>>
+            stopContainer(containerId: string): Promise<number>
+        }
+        manager.solvers.set(solver.id, solver)
+        manager.procs.set(solver.id, proc)
+        manager.solverEnvs.set(solver.id, { TCH_CHALLENGE_ID: "challenge-1" })
+        const stopContainer = mock(async () => 0)
+        if (failure === "exit-code") stopContainer.mockResolvedValueOnce(1)
+        else stopContainer.mockRejectedValueOnce(new Error("Docker daemon unavailable"))
+        manager.stopContainer = stopContainer
+        const statuses: SolverInstance["status"][] = []
+        runtime.onStatusChange((_solverId, status) => statuses.push(status))
+
+        await expect(runtime.stopSolver(solver.id)).rejects.toThrow(failure === "exit-code" ? "docker stop exited with code 1" : "Docker daemon unavailable")
+
+        expect(solver.status).toBe("running")
+        expect(solver.error).toBeDefined()
+        expect(manager.procs.get(solver.id)).toBe(proc)
+        expect(manager.solverEnvs.has(solver.id)).toBe(true)
+        runtime.sendCommand(solver.id, { type: "get_state" })
+        expect(write).toHaveBeenCalled()
+        expect(statuses).toEqual(["stopping", "running"])
+
+        await runtime.stopSolver(solver.id)
+
+        expect(solver.status).toBe("stopped")
+        expect(solver.error).toBeUndefined()
+        expect(manager.procs.has(solver.id)).toBe(false)
+        expect(manager.solverEnvs.has(solver.id)).toBe(false)
+        expect(statuses).toEqual(["stopping", "running", "stopping", "stopped"])
+    })
+
+    test("stopping an already stopped solver is idempotent", async () => {
+        const { runtime } = await createRuntimeManager()
+        const manager = runtime as unknown as {
+            solvers: Map<string, SolverInstance>
+            stopContainer(containerId: string): Promise<number>
+        }
+        manager.solvers.set("already-stopped", {
+            id: "already-stopped", containerId: "already-stopped", name: "already-stopped",
+            promptName: "test", task: "test", status: "stopped", createdAt: Date.now(),
+        })
+        const stopContainer = mock(async () => 0)
+        manager.stopContainer = stopContainer
+        const onStatusChange = mock(() => {})
+        runtime.onStatusChange(onStatusChange)
+
+        await runtime.stopSolver("already-stopped")
+
+        expect(stopContainer).not.toHaveBeenCalled()
+        expect(onStatusChange).not.toHaveBeenCalled()
     })
 })
 
@@ -396,6 +521,41 @@ describe("RuntimeManager host bridge", () => {
                 "系统同步：赛题 hint 已更新。\n- 立即吸收这条 hint，并结合当前路线评估是否需要转向。\n- 如果它改变了攻击面理解，优先刷新 memory_list / idea_list。\n- hint:\nfresh hint",
         })
         expect(data).toEqual({ code: "web-001", hint_content: "fresh hint" })
+    })
+
+    test("challenge_get_hint skips running solvers whose assignment is already complete", async () => {
+        const { runtime, challengeManager } = await createRuntimeManager()
+        ;(challengeManager as unknown as { getChallenge: () => Promise<undefined> }).getChallenge = async () => undefined
+        ;(challengeManager as unknown as { getHint: () => Promise<unknown> }).getHint = async () => ({
+            remote: { code: "web-001", hint_content: "fresh hint" },
+            challenge: undefined,
+            is_completed: false,
+        })
+        ;(challengeManager as unknown as { isSolverTaskCompleted: (challengeId: string, solverId: string) => Promise<boolean> }).isSolverTaskCompleted = async (_challengeId, solverId) => solverId === "solver-complete"
+        const sendCommand = mock(() => {})
+        ;(runtime as unknown as { sendCommand: typeof sendCommand }).sendCommand = sendCommand
+        for (const id of ["solver-complete", "solver-active"]) {
+            ;(runtime as unknown as { solvers: Map<string, unknown> }).solvers.set(id, {
+                id,
+                containerId: id,
+                name: id,
+                promptName: "prompt",
+                task: "solve",
+                challengeId: "web-001",
+                status: "running",
+                createdAt: Date.now(),
+            })
+        }
+        ;(runtime as unknown as { solverEnvs: Map<string, Record<string, string>> }).solverEnvs.set("solver-active", {
+            [CHALLENGE_ENV_CHALLENGE_ID]: "web-001",
+        })
+
+        await (runtime as unknown as {
+            executeHostBridgeAction: (solverId: string, action: string, params: unknown) => Promise<Record<string, unknown>>
+        }).executeHostBridgeAction("solver-active", "challenge_get_hint", {})
+
+        expect(sendCommand).toHaveBeenCalledTimes(1)
+        expect(sendCommand).toHaveBeenCalledWith("solver-active", expect.objectContaining({ type: "steer" }))
     })
 
     test("challenge_submit_report uses solver-scoped manager", async () => {

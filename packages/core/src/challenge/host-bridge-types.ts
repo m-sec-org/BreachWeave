@@ -3,6 +3,8 @@ export type HostBridgeAction =
     | "challenge_get_hint"
     | "challenge_submit_report"
     | "challenge_is_completed"
+    | "challenge_get_solver_review_context"
+    | "challenge_submit_solver_review"
     | "challenge_memory_list"
     | "challenge_board_refresh"
     | "challenge_memory_add"

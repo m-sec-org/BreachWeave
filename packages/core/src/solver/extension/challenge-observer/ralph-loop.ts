@@ -5,7 +5,7 @@ import { requestHostBridge } from "../../../challenge/host-bridge-client"
 
 const MAX_CHALLENGE_RETRY_ATTEMPTS = 10
 const CHALLENGE_CONTINUATION_MESSAGE =
-    "仅继续本次分配的资产和测试项清单，不要重复已完成步骤。逐项记录 completed 或 blocked 及证据，通过 challenge_submit_report 提交 test_results；本次分工完成并提交报告后结束。额外发现写入 discoveries 交给 planner 调度，不要自行扩展分工。"
+    "仅继续本次分配的资产和测试项清单，不要重复已完成步骤。逐项记录 completed 或 blocked 及证据，通过 challenge_submit_report 提交 test_results；本次分工报告齐全后暂停，等待 Observer 审核和 Planner 裁决。额外发现写入 discoveries 交给 planner 调度，不要自行扩展分工。"
 const CHALLENGE_CUSTOM_MESSAGE_TYPE = "challenge-continuation"
 const BASE_CHALLENGE_DELAY_MS = 1000
 const MAX_CHALLENGE_DELAY_MS = 10000
@@ -31,7 +31,8 @@ export function buildChallengeExtensionAppendPrompt(): string {
         "- 如果当前推进已经与某条 `testing` / `verified` 主线一致，不要为了响应同步消息而机械改线；优先继续推进当前有效主线。",
         "- 只执行本次分配的资产和测试项清单，不因其他 solver 的进展或额外发现自行扩大测试范围。",
         "- `challenge_submit_report` 是 host 提供的正式提交工具；把报告写入工作区、在最终文本中描述报告或只发送协作消息都不算提交。",
-        "- 通过 `challenge_submit_report` 的 `test_results` 逐项报告 completed / blocked 和证据；本次分工完成并提交报告后结束，无需等待整个项目完成。",
+        "- 通过 `challenge_submit_report` 的 `test_results` 逐项报告 completed / blocked 和证据；报告齐全仅表示你申请完成分工，必须暂停工具和续跑，等待 Observer 依据任务清单审查遗漏、证据真实性、偷懒作弊和遗留待办，再由 Planner 决策。",
+        "- 只有 Planner 的分工续跑指令才允许恢复执行，按审查意见补齐原分工中的遗漏和证据；分工正常完成后由 Planner 结束 solver 并释放资源，不要自行判定审核通过。",
         "- 将额外发现和后续测试建议写入报告的 `discoveries` 交给 planner 决定是否继续分配。",
     ].join("\n")
 }
@@ -54,6 +55,9 @@ function getChallengeDelayMs(attempt: number): number {
 interface ChallengeCompletionState {
     is_completed: boolean
     solver_task_completed?: boolean
+    solver_review_pending?: boolean
+    solver_resume_required?: boolean
+    solver_stop_approved?: boolean
 }
 
 interface ChallengeContinuationOptions {
@@ -63,7 +67,8 @@ interface ChallengeContinuationOptions {
 async function isChallengeCompletedByHostBridge(readCompletion: () => Promise<ChallengeCompletionState>): Promise<boolean> {
     try {
         const result = await readCompletion()
-        return result.is_completed === true || result.solver_task_completed === true
+        return result.is_completed === true || result.solver_review_pending === true || result.solver_stop_approved === true
+            || (result.solver_task_completed === true && result.solver_resume_required !== true)
     } catch {
         return false
     }
@@ -86,7 +91,13 @@ export function attachChallengeContinuation(pi: ExtensionAPI, options: Challenge
 
     pi.on("tool_call", () => {
         if (!assignmentComplete) return
-        return { block: true, terminate: true, reason: "本次分工报告已齐全，请结束并总结已提交结果；额外发现和剩余资产由 planner 安排。" }
+        return { block: true, terminate: true, reason: "本次分工报告已齐全，请暂停执行，等待 Observer 审核和 Planner 裁决；仅 Planner 的分工续跑指令可恢复执行。" }
+    })
+
+    pi.on("message_end", (event) => {
+        if (event.message.role !== "custom" || event.message.customType !== "planner-assignment-resume") return
+        assignmentComplete = false
+        consecutiveErrors = 0
     })
 
     pi.on("agent_end", async (event) => {

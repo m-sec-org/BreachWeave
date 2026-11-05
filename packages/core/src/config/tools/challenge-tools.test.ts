@@ -108,7 +108,7 @@ test("challenge_submit_report sends assigned test outcomes and discoveries", asy
     expect(requestHostBridge).toHaveBeenCalledWith("challenge_submit_report", params)
 })
 
-test("challenge_submit_report clearly ends a fully reported assignment while other assets remain", async () => {
+test("challenge_submit_report pauses a fully reported assignment for Observer and Planner review", async () => {
     requestHostBridge.mockResolvedValue({
         assets_total: 2,
         assets_scanned: 0,
@@ -128,6 +128,6 @@ test("challenge_submit_report clearly ends a fully reported assignment while oth
     expect(result.details.solver_task_completed).toBe(true)
     expect(result.content).toEqual([{
         type: "text",
-        text: "资产 47c28ad18ead250c00600c0bc8d2e7c5 的报告已提交。本次分工报告齐全，请结束；剩余资产由 planner 安排。",
+        text: "资产 47c28ad18ead250c00600c0bc8d2e7c5 的报告已提交。本次分工报告齐全，请暂停；Observer 将核对清单、执行证据与遗留项，再由 planner 决定继续补做或结束 solver。",
     }])
 })

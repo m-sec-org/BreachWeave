@@ -97,6 +97,19 @@ REST API 路由全部定义在 `server.ts` 的 `routes` 对象中：
 
 ## 数据流
 
+### Solver 分工审核与释放
+
+Solver 的正式报告只声明分工结果，不授予结束权限。`challenge_submit_report` 的所有资产和测试项齐全后，Solver 暂停工具、清空协作消息队列并拒收普通同步；周期 Observer 开关不影响最终审核。
+
+最终 Observer 读取宿主保存的原始任务、当前报告和完整工具历史，对每个资产/测试项提交 `verified`、`blocked`、`missing` 或 `unsupported`，并列明疑点和遗留待办。审查记录绑定确切的 submission IDs，保存到 challenge 的 `solver-reviews/`。普通自然语言总结不能代替结构化审核；失败或超时保持待审，每 10 秒重试。
+
+Planner 优先处理这些审查，不受空闲槽位或资产认领状态限制。通过 `planner_decide_solver` 决定：
+
+- `continue`：给原 Solver 发送专属 `resume_assignment` 整改指令，解锁原分工，修订报告后重新审核。
+- `stop`：仅对证据充分的正常完成或真实阻塞分工停止容器。遗漏、无证据结论和未解决疑点不能直接通过。
+
+资产关闭另行要求测试项具有 Observer 验证证据且相关分工已通过 Planner 停止决定。Runtime 对容器停止和进程 EOF 发出独立状态通知，Web 通过 SSE 更新列表和详情，及时显示 `stopped`。
+
 ```
 用户操作 → React 组件 → api.ts (fetch) → Bun.serve 路由
   → ConfigManager 方法 → 文件系统 (~/.tch-agent/config/)

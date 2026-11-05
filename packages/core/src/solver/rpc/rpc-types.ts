@@ -17,6 +17,7 @@ export type RpcCommand =
     | { id?: string; type: "prompt"; message: string; streamingBehavior?: "steer" | "followUp" }
     | { id?: string; type: "steer"; message: string }
     | { id?: string; type: "follow_up"; message: string }
+    | { id?: string; type: "resume_assignment"; message: string; reviewId: string }
     | { id?: string; type: "abort" }
     // State
     | { id?: string; type: "get_state" }

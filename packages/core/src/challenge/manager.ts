@@ -62,6 +62,8 @@ import { Type } from "typebox"
 import { CHALLENGE_PLANNER_PROMPT_NAME } from "../config/prompts/index"
 import type { AuthorizedChallengeProjection, AuthorizedChallengeProjectionProvider, AuthorizedWorkRecoveryResult } from "./authorized-projection"
 import type { AuthorizedProjectBinding } from "../config/authorized-projects"
+import type { SolverAssignmentReview, SolverReviewRecord } from "./solver-review"
+import { listSolverReviews, saveSolverReview } from "./solver-review"
 
 export type { IdeaStatus, MemoryKind, MemoryEntry, AddMemoryInput, IdeaRecord, AddIdeaInput, AddIdeaResult, UpdateIdeaInput } from "./memory"
 
@@ -187,7 +189,7 @@ interface PlannerRunOptions {
 }
 
 interface PlannerTextAction {
-    toolName: "planner_start_challenge" | "planner_launch_solver" | "planner_complete_asset"
+    toolName: "planner_start_challenge" | "planner_launch_solver" | "planner_complete_asset" | "planner_decide_solver"
     args: Record<string, unknown>
 }
 
@@ -199,7 +201,7 @@ interface PlannerTextAction {
  */
 export function parsePlannerTextActions(text: string): PlannerTextAction[] {
     const actions: PlannerTextAction[] = []
-    const blocks = /<(planner_(?:start_challenge|launch_challenge|launch_solver|complete_asset))>\s*([\s\S]*?)\s*<\/\1>/g
+    const blocks = /<(planner_(?:start_challenge|launch_challenge|launch_solver|complete_asset|decide_solver))>\s*([\s\S]*?)\s*<\/\1>/g
     for (const match of text.matchAll(blocks)) {
         const rawTag = match[1]
         const rawPayload = match[2]?.trim()
@@ -212,7 +214,7 @@ export function parsePlannerTextActions(text: string): PlannerTextAction[] {
             continue
         }
         if (!value || typeof value !== "object" || Array.isArray(value)) continue
-        const toolName = rawTag === "planner_launch_solver" || rawTag === "planner_complete_asset" ? rawTag : "planner_start_challenge"
+        const toolName = rawTag === "planner_launch_solver" || rawTag === "planner_complete_asset" || rawTag === "planner_decide_solver" ? rawTag : "planner_start_challenge"
         actions.push({ toolName, args: { ...(value as Record<string, unknown>) } })
     }
     return actions
@@ -280,6 +282,7 @@ interface PlannerSnapshotChallenge {
     sharedMemory: MemoryEntry[]
     sharedIdeas: IdeaRecord[]
     submissions: ChallengeSubmissionLogRecord[]
+    solverReviews?: SolverReviewRecord[]
     untouched: boolean
     stale: boolean
     idleInstance: boolean
@@ -429,6 +432,11 @@ function hasReportedAssignment(report: ChallengeSubmissionLogRecord | undefined,
     if (!report) return false
     if (testItems.size === 0) return true
     return [...testItems].every((item) => report.test_results?.some((result) => result.test_item === item && (!requireCompleted || result.status === "completed")))
+}
+
+function sameSubmissionIds(left: string[], right: string[]): boolean {
+    const sortedRight = [...right].sort()
+    return left.length === right.length && [...left].sort().every((id, index) => id === sortedRight[index])
 }
 
 function isClaimingSolver(solver: SolverInstance): boolean {
@@ -695,6 +703,9 @@ function formatPlannerSnapshotMarkdown(snapshot: PlannerSnapshot): string {
             `- Available unclaimed pending targets: ${challenge.availableAssets.urls.length + challenge.availableAssets.ips.length}`,
             `- Attempt count: ${challenge.attemptCount}`,
             `- Report count: ${challenge.reportCount}`,
+            "#### Observer Assignment Reviews Awaiting Planner Decision",
+            ...(challenge.solverReviews?.length ? challenge.solverReviews.map((review) => JSON.stringify(review)) : ["None"]),
+            "- 对每份待决审查必须调用 planner_decide_solver；审核有遗漏、缺乏执行证据、虚报或偷懒时 continue 原 solver 并给整改清单；正常完成或有证据的真实阻塞允许 stop 释放容器。不能因资源已满、项目不 stale 或资产仍被认领而跳过审查。",
             "#### Shared Findings / Memory",
             formatSolverMemorySection(challenge.sharedMemory),
             "#### Shared Candidate Ideas",
@@ -902,7 +913,10 @@ export class ChallengeManager {
     private loopTickCount = 0
     private finishingChallenges = new Set<string>()
     private plannerRunning = false
+    private readonly pendingReviewPlanners = new Set<string>()
+    private readonly solverReviewMutations = new Map<string, Promise<void>>()
     private readonly solverLaunchReservations = new Map<string, Array<SolverAssignment | undefined>>()
+    private readonly challengeStartFlights = new Map<string, Promise<ChallengeActionResult<ChallengeApiStartData>>>()
     private noisyErrorLogState = new Map<string, { lastLoggedAt: number; suppressedCount: number }>()
     private readonly captureGenerations = new Map<string, number>()
     private authorizedStartupRecovery?: Promise<AuthorizedStartupRecovery[]>
@@ -1338,6 +1352,9 @@ export class ChallengeManager {
     }
 
     private async shouldRunPlannerForPendingAssets(settings?: HostSettings): Promise<boolean> {
+        for (const challenge of await this.listStoredChallenges()) {
+            if (!this.isAuthorizedChallenge(challenge) && (await this.pendingSolverReviews(challenge.id)).length > 0) return true
+        }
         if (!(await this.hasAnyPendingAssetTargets())) return false
         return this.hasAvailableSolverSlot(settings)
     }
@@ -1361,14 +1378,25 @@ export class ChallengeManager {
         }
     }
 
-    private broadcastChallengeBoardUpdateToRunningSolvers(challengeId: string, message: string): void {
+    private async broadcastChallengeBoardUpdateToRunningSolvers(challengeId: string, message: string): Promise<void> {
         const runtime = this.runtime
         const targetChallengeId = challengeId.trim()
         const text = message.trim()
         if (!runtime || !targetChallengeId || !text) return
-        for (const solver of runtime.list()) {
-            if (solver.challengeId !== targetChallengeId) continue
-            if (solver.status !== "running") continue
+        const candidates = runtime.list().filter((solver) => solver.challengeId === targetChallengeId && solver.status === "running")
+        const recipients = await Promise.all(candidates.map(async (solver) => {
+            try {
+                return await this.isSolverTaskCompleted(targetChallengeId, solver.id) ? undefined : solver
+            } catch (error) {
+                this.error("challenge:memory", "failed to check solver assignment before board broadcast", error, {
+                    challengeId: targetChallengeId,
+                    solverId: solver.id,
+                })
+                return solver
+            }
+        }))
+        for (const solver of recipients) {
+            if (!solver) continue
             try {
                 runtime.sendCommand(solver.id, {
                     type: "follow_up",
@@ -1414,10 +1442,19 @@ export class ChallengeManager {
             return (await this.runPlannerOnce(source)).message || undefined
         } catch (error) {
             this.error("challenge:planner", "tick failed", error, { source })
+            if (error instanceof Error && error.message.includes("Planner decision timed out")) {
+                await this.recoverPendingSolverReviewStops()
+            }
             return
         } finally {
             this.plannerRunning = false
+            this.drainSolverReviewPlanners()
         }
+    }
+
+    private drainSolverReviewPlanners(): void {
+        const challengeId = this.pendingReviewPlanners.values().next().value
+        if (challengeId) this.runPlannerInBackground(challengeId, "challenge-planner:solver-review")
     }
 
     private runPlannerInBackground(challengeId: string | undefined, source: string): void {
@@ -1425,6 +1462,7 @@ export class ChallengeManager {
         if (!this.runtime) return
         this.plannerRunning = true
         const scopedChallengeId = challengeId?.trim()
+        const reviewing = scopedChallengeId !== undefined && this.pendingReviewPlanners.delete(scopedChallengeId)
         void (async () => {
             try {
                 if (scopedChallengeId) {
@@ -1435,11 +1473,11 @@ export class ChallengeManager {
                         ? (await this.runtime.listAll()).filter(isClaimingSolver)
                         : []
                     const [attempts, submissions] = await Promise.all([this.listAttemptLogs(challenge.id), this.listSubmissionLogs(challenge.id)])
-                    if (!this.hasUnclaimedPendingAssetTargets(challenge, activeSolvers, attempts, submissions)) return
+                    if (!reviewing && !this.hasUnclaimedPendingAssetTargets(challenge, activeSolvers, attempts, submissions)) return
                 } else if (!(await this.hasAnyPendingAssetTargets())) {
                     return
                 }
-                if (!(await this.hasAvailableSolverSlot())) return
+                if (!reviewing && !(await this.hasAvailableSolverSlot())) return
 
                 if (scopedChallengeId) await this.updateChallengePlannerStatus(scopedChallengeId, "starting")
                 if (scopedChallengeId) await this.updateChallengePlannerStatus(scopedChallengeId, "running")
@@ -1449,6 +1487,14 @@ export class ChallengeManager {
                 }
             } catch (error) {
                 this.error("challenge:planner", "background planner failed", error, { source, challengeId: scopedChallengeId })
+                if (reviewing && scopedChallengeId && error instanceof Error && error.message.includes("Planner decision timed out")) {
+                    // Do not lose a review merely because the model call timed out.
+                    this.pendingReviewPlanners.add(scopedChallengeId)
+                    await this.recoverSafeSolverReviewStops(scopedChallengeId)
+                    if ((await this.pendingSolverReviews(scopedChallengeId)).length === 0) {
+                        this.pendingReviewPlanners.delete(scopedChallengeId)
+                    }
+                }
                 if (scopedChallengeId) {
                     await this.updateChallengePlannerStatus(scopedChallengeId, "stop").catch((statusError) => {
                         this.error("challenge:planner", "failed to reset planner status", statusError, { source, challengeId: scopedChallengeId })
@@ -1456,6 +1502,7 @@ export class ChallengeManager {
                 }
             } finally {
                 this.plannerRunning = false
+                this.drainSolverReviewPlanners()
             }
         })()
     }
@@ -1480,6 +1527,7 @@ export class ChallengeManager {
             throw error
         } finally {
             this.plannerRunning = false
+            this.drainSolverReviewPlanners()
         }
     }
 
@@ -1855,6 +1903,18 @@ export class ChallengeManager {
 
     async startChallenge(challengeId: string): Promise<ChallengeActionResult<ChallengeApiStartData>> {
         const id = requireText(challengeId, "challengeId")
+        const existing = this.challengeStartFlights.get(id)
+        if (existing) return existing
+        const flight = this.startChallengeInternal(id)
+        this.challengeStartFlights.set(id, flight)
+        try {
+            return await flight
+        } finally {
+            if (this.challengeStartFlights.get(id) === flight) this.challengeStartFlights.delete(id)
+        }
+    }
+
+    private async startChallengeInternal(id: string): Promise<ChallengeActionResult<ChallengeApiStartData>> {
         const current = await this.getChallenge(id)
         if (this.isAuthorizedChallenge(current)) {
             await this.assertAuthorizedPlannerSolverReady(id, "solver")
@@ -1999,7 +2059,7 @@ export class ChallengeManager {
             if (!updated) throw new Error(`challenge "${id}" not found`)
             challenge = updated
         }
-        if (this.hasSchedulablePendingAssetTargets(challenge)) this.runPlannerInBackground(id, "challenge-planner:report-submitted")
+        if (!input.solverId && this.hasSchedulablePendingAssetTargets(challenge)) this.runPlannerInBackground(id, "challenge-planner:report-submitted")
         const nextAssets = challenge.assets ?? EMPTY_ASSETS
         const assetsTotal = countTotalAssets(nextAssets)
         const assetsScanned = countScannedAssets(nextAssets)
@@ -2063,21 +2123,182 @@ export class ChallengeManager {
     }
 
     async isSolverTaskCompleted(challengeId: string, solverId: string): Promise<boolean> {
+        return (await this.getSolverReviewContext(challengeId, solverId)).solver_task_completed
+    }
+
+    async getSolverReviewContext(challengeId: string, solverId: string) {
         const attempts = await this.listAttemptLogs(challengeId)
         const attempt = attempts.findLast((item) => item.solver_id === solverId)
-        if (!attempt) return false
-        const hashes = extractSolverAssetHashes(attempt.task)
-        if (hashes.size === 0) return false
-        const testItems = extractSolverTestItems(attempt.task)
+        const task = attempt?.task ?? ""
+        const hashes = extractSolverAssetHashes(task)
         const submissions = await this.listSubmissionLogs(challengeId)
-        return [...hashes].every((hash) => hasReportedAssignment(latestSolverAssetReport(submissions, solverId, hash), testItems, false))
+        const latest = [...hashes].map((hash) => latestSolverAssetReport(submissions, solverId, hash))
+            .filter((item): item is ChallengeSubmissionLogRecord => item !== undefined)
+        const submissionIds = latest.map((item) => item.id).sort()
+        const reviews = (await this.listSolverReviews(challengeId)).filter((item) => item.solver_id === solverId)
+        const current = reviews.findLast((item) => item.assignment_id === attempt?.id && sameSubmissionIds(item.submission_ids, submissionIds))
+        const tests = extractSolverTestItems(task)
+        const covered = hashes.size > 0 && [...hashes].every((hash) => hasReportedAssignment(latest.find((report) => report.asset_hash === hash), tests, false))
+        return {
+            task,
+            assignment_id: attempt?.id ?? "",
+            submissions: latest,
+            submission_ids: submissionIds,
+            review_required: covered && current === undefined,
+            solver_task_completed: covered && current?.decision?.action !== "continue",
+            solver_review_pending: covered && current?.decision === undefined,
+            solver_resume_required: current?.decision?.action === "continue",
+            solver_stop_approved: current?.decision?.action === "stop",
+            current_review: current,
+        }
+    }
+
+    async listSolverReviews(challengeId: string): Promise<SolverReviewRecord[]> {
+        return listSolverReviews(await this.getRootDir(), challengeId)
+    }
+
+    private async pendingSolverReviews(challengeId: string): Promise<SolverReviewRecord[]> {
+        const reviews = (await this.listSolverReviews(challengeId)).filter((item) => !item.decision)
+        const current = await Promise.all(reviews.map(async (review) => {
+            const context = await this.getSolverReviewContext(challengeId, review.solver_id)
+            return context.current_review?.id === review.id ? review : undefined
+        }))
+        return current.filter((review): review is SolverReviewRecord => review !== undefined)
+    }
+
+    async submitSolverReview(challengeId: string, solverId: string, submissionIds: string[], review: SolverAssignmentReview): Promise<SolverReviewRecord> {
+        return this.withSolverReviewLock(challengeId, solverId, () => this.saveSolverAssignmentReview(challengeId, solverId, submissionIds, review))
+    }
+
+    private async withSolverReviewLock<T>(challengeId: string, solverId: string, action: () => Promise<T>): Promise<T> {
+        const key = JSON.stringify([challengeId, solverId])
+        const previous = this.solverReviewMutations.get(key) ?? Promise.resolve()
+        let release!: () => void
+        const pending = new Promise<void>((resolve) => { release = resolve })
+        this.solverReviewMutations.set(key, pending)
+        await previous
+        try {
+            return await action()
+        } finally {
+            release()
+            if (this.solverReviewMutations.get(key) === pending) this.solverReviewMutations.delete(key)
+        }
+    }
+
+    private async saveSolverAssignmentReview(challengeId: string, solverId: string, submissionIds: string[], review: SolverAssignmentReview): Promise<SolverReviewRecord> {
+        const context = await this.getSolverReviewContext(challengeId, solverId)
+        if (!sameSubmissionIds(context.submission_ids, submissionIds)) throw new Error("solver reports changed during Observer review")
+        if (context.current_review) return context.current_review
+        if (!context.review_required) throw new Error("solver has not reported every assigned asset and test item")
+        const hashes = extractSolverAssetHashes(context.task)
+        const tests = extractSolverTestItems(context.task)
+        const keys = new Set<string>()
+        for (const item of review.checklist) {
+            if (!hashes.has(item.asset_hash) || (tests.size > 0 && !tests.has(item.test_item))) throw new Error("Observer reviewed an unassigned item")
+            const key = `${item.asset_hash}\n${item.test_item}`
+            if (keys.has(key)) throw new Error("Observer checklist contains duplicate items")
+            keys.add(key)
+        }
+        for (const hash of hashes) {
+            if (tests.size === 0 && !review.checklist.some((item) => item.asset_hash === hash)) throw new Error("Observer checklist omits an assigned asset")
+            for (const test of tests) {
+                if (!keys.has(`${hash}\n${test}`)) throw new Error("Observer checklist omits an assigned test item")
+            }
+        }
+        const record: SolverReviewRecord = {
+            id: hashChallengeAsset(JSON.stringify([solverId, context.assignment_id, ...context.submission_ids])), challenge_id: challengeId, solver_id: solverId,
+            assignment_id: context.assignment_id,
+            submission_ids: context.submission_ids, review, created_at: new Date().toISOString(),
+        }
+        await saveSolverReview(await this.getRootDir(), record)
+        this.requestSolverReviewPlanner(challengeId)
+        return record
+    }
+
+    requestSolverReviewPlanner(challengeId: string): void {
+        this.pendingReviewPlanners.add(challengeId)
+        this.runPlannerInBackground(challengeId, "challenge-planner:solver-review")
+    }
+
+    private async recoverSafeSolverReviewStops(challengeId: string): Promise<void> {
+        const reviews = await this.pendingSolverReviews(challengeId)
+        for (const record of reviews) {
+            const review = record.review
+            const safeToStop = review.suggested_decision === "stop"
+                && review.checklist.every((item) => item.verdict === "verified" || item.verdict === "blocked")
+            if (!safeToStop) continue
+            try {
+                await this.decideSolverReview(
+                    challengeId,
+                    record.id,
+                    "stop",
+                    "Planner timed out; the Observer audit passed the stop policy checks, so the reviewed solver was released.",
+                )
+            } catch (error) {
+                this.error("challenge:planner", "failed to recover an audited solver after planner timeout", error, {
+                    challengeId,
+                    reviewId: record.id,
+                    solverId: record.solver_id,
+                })
+            }
+        }
+    }
+
+    private async recoverPendingSolverReviewStops(): Promise<void> {
+        const challengeIds = new Set(this.pendingReviewPlanners)
+        for (const challenge of await this.listStoredChallenges()) {
+            if (this.isAuthorizedChallenge(challenge)) continue
+            if ((await this.pendingSolverReviews(challenge.id)).length > 0) challengeIds.add(challenge.id)
+        }
+        for (const challengeId of challengeIds) {
+            await this.recoverSafeSolverReviewStops(challengeId)
+            if ((await this.pendingSolverReviews(challengeId)).length === 0) this.pendingReviewPlanners.delete(challengeId)
+        }
+    }
+
+    async decideSolverReview(challengeId: string, reviewId: string, action: "continue" | "stop", rationale: string, instructions?: string): Promise<void> {
+        const record = (await this.listSolverReviews(challengeId)).find((item) => item.id === reviewId)
+        if (!record) throw new Error("Observer review not found")
+        return this.withSolverReviewLock(challengeId, record.solver_id, () => this.applySolverReviewDecision(challengeId, reviewId, action, rationale, instructions))
+    }
+
+    private async applySolverReviewDecision(challengeId: string, reviewId: string, action: "continue" | "stop", rationale: string, instructions?: string): Promise<void> {
+        const runtime = this.getRuntime()
+        if (!runtime) throw new Error("runtime is not attached")
+        const record = (await this.listSolverReviews(challengeId)).find((item) => item.id === reviewId)
+        if (!record) throw new Error("Observer review not found")
+        const context = await this.getSolverReviewContext(challengeId, record.solver_id)
+        if (context.current_review?.id !== reviewId) throw new Error("Observer review is stale; review the latest reports")
+        if (record.decision && record.decision.action !== action) throw new Error("review already has a different Planner decision")
+        if (action === "stop" && (record.review.suggested_decision !== "stop" || record.review.checklist.some((item) => item.verdict === "missing" || item.verdict === "unsupported"))) {
+            throw new Error("Observer found incomplete or unsupported work; continue this solver with specific corrections")
+        }
+        if (action === "stop" && record.review.checklist.some((item) => {
+            const report = context.submissions.find((submission) => submission.asset_hash === item.asset_hash)
+            const result = report?.test_results?.find((result) => result.test_item === item.test_item)
+            return result !== undefined && ((item.verdict === "blocked") !== (result.status === "blocked"))
+        })) throw new Error("Observer evidence contradicts reported completion status; continue this solver to correct the report")
+        const solver = (await runtime.listAll()).find((item) => item.id === record.solver_id && item.challengeId === challengeId)
+        if (!solver) throw new Error("reviewed solver not found")
+        const reason = requireText(rationale, "rationale")
+        if (action === "continue") requireText(instructions, "instructions")
+        record.decision ??= { action, rationale: reason, ...(instructions ? { instructions } : {}), decided_at: new Date().toISOString() }
+        await saveSolverReview(await this.getRootDir(), record)
+        if (action === "stop") {
+            if (isActiveSolver(solver)) await runtime.stopSolver(record.solver_id)
+        } else {
+            runtime.sendCommand(record.solver_id, {
+                type: "resume_assignment", reviewId,
+                message: `Planner 审核决定：继续原分工。\n审核结论：${record.review.summary}\n问题：${record.review.concerns.join("；")}\n遗留待办：${record.review.remaining_work.join("；")}\n整改要求：${instructions}\n只补做原分工中的遗漏、无证据或未完成项，保留已有有效证据；完成后重新提交报告接受复审。`,
+            })
+        }
     }
 
     async appendMemory(input: AddMemoryInput): Promise<MemoryEntry> {
         const { provider, scope } = await this.getMemoryContext(input.challengeId)
         const { challengeId: _challengeId, ...memoryInput } = input
         const entry = await provider.appendMemory(scope, memoryInput)
-        this.broadcastChallengeBoardUpdateToRunningSolvers(input.challengeId, formatChallengeMemoryBroadcastMessage("added", entry))
+        await this.broadcastChallengeBoardUpdateToRunningSolvers(input.challengeId, formatChallengeMemoryBroadcastMessage("added", entry))
         return entry
     }
 
@@ -2101,14 +2322,14 @@ export class ChallengeManager {
     async updateMemory(challengeId: string, entryIdOrPrefix: string, patch: { kind?: MemoryKind; content?: string; refs?: string[]; source?: string }): Promise<MemoryEntry> {
         const { provider, scope } = await this.getMemoryContext(challengeId)
         const entry = await provider.updateMemory(scope, entryIdOrPrefix, patch)
-        this.broadcastChallengeBoardUpdateToRunningSolvers(challengeId, formatChallengeMemoryBroadcastMessage("updated", entry))
+        await this.broadcastChallengeBoardUpdateToRunningSolvers(challengeId, formatChallengeMemoryBroadcastMessage("updated", entry))
         return entry
     }
 
     async deleteMemory(challengeId: string, entryIdOrPrefix: string): Promise<MemoryEntry> {
         const { provider, scope } = await this.getMemoryContext(challengeId)
         const entry = await provider.deleteMemory(scope, entryIdOrPrefix)
-        this.broadcastChallengeBoardUpdateToRunningSolvers(challengeId, formatChallengeMemoryBroadcastMessage("deleted", entry))
+        await this.broadcastChallengeBoardUpdateToRunningSolvers(challengeId, formatChallengeMemoryBroadcastMessage("deleted", entry))
         return entry
     }
 
@@ -2126,7 +2347,7 @@ export class ChallengeManager {
         const { provider, scope } = await this.getMemoryContext(challengeId)
         const result = await provider.addIdea(scope, input)
         if (result.created) {
-            this.broadcastChallengeBoardUpdateToRunningSolvers(challengeId, formatChallengeIdeaBroadcastMessage("added", result.item))
+            await this.broadcastChallengeBoardUpdateToRunningSolvers(challengeId, formatChallengeIdeaBroadcastMessage("added", result.item))
         }
         return result
     }
@@ -2134,14 +2355,14 @@ export class ChallengeManager {
     async updateIdea(challengeId: string, ideaIdOrPrefix: string, patch: UpdateIdeaInput): Promise<IdeaRecord> {
         const { provider, scope } = await this.getMemoryContext(challengeId)
         const item = await provider.updateIdea(scope, ideaIdOrPrefix, patch)
-        this.broadcastChallengeBoardUpdateToRunningSolvers(challengeId, formatChallengeIdeaBroadcastMessage("updated", item))
+        await this.broadcastChallengeBoardUpdateToRunningSolvers(challengeId, formatChallengeIdeaBroadcastMessage("updated", item))
         return item
     }
 
     async deleteIdea(challengeId: string, ideaIdOrPrefix: string): Promise<IdeaRecord> {
         const { provider, scope } = await this.getMemoryContext(challengeId)
         const item = await provider.deleteIdea(scope, ideaIdOrPrefix)
-        this.broadcastChallengeBoardUpdateToRunningSolvers(challengeId, formatChallengeIdeaBroadcastMessage("deleted", item))
+        await this.broadcastChallengeBoardUpdateToRunningSolvers(challengeId, formatChallengeIdeaBroadcastMessage("deleted", item))
         return item
     }
 
@@ -2634,12 +2855,25 @@ export class ChallengeManager {
             }
         })
 
-        await session.prompt(
-            options?.challengeId
-                ? `开始当前项目调度。challengeId=${options.challengeId}${options.preferredPromptName ? `，用户选择的 solver prompt=${options.preferredPromptName}` : ""}。如果需要启动 solver，优先使用用户选择的 prompt。`
-                : "开始本轮比赛调度。",
-        )
-        session.dispose()
+        let plannerTimeout: ReturnType<typeof setTimeout> | undefined
+        try {
+            await Promise.race([
+                session.prompt(
+                    options?.challengeId
+                        ? `开始当前项目调度。challengeId=${options.challengeId}${options.preferredPromptName ? `，用户选择的 solver prompt=${options.preferredPromptName}` : ""}。优先对每份 Observer 待决审查调用 planner_decide_solver，再考虑新分配。`
+                        : "开始本轮比赛调度。优先处理 Observer 待决审查。",
+                ),
+                new Promise<never>((_resolve, reject) => {
+                    plannerTimeout = setTimeout(() => {
+                        void session.abort().catch(() => {})
+                        reject(new Error("Planner decision timed out; pending reviews remain available for retry"))
+                    }, 120_000)
+                }),
+            ])
+        } finally {
+            clearTimeout(plannerTimeout)
+            session.dispose()
+        }
         if (plannerActions.size === 0) {
             for (const [index, action] of parsePlannerTextActions(plannerMessage).entries()) {
                 const args = { ...action.args }
@@ -2693,6 +2927,7 @@ export class ChallengeManager {
         const snapshotChallenges = new Map(snapshot.challenges.map((challenge) => [challenge.id, challenge]))
         const snapshotSolvers = new Map(snapshot.activeSolvers.map((solver) => [solver.id, solver]))
         const claimedAssignmentsByChallenge = new Map<string, SolverAssignment[]>()
+        let launchSlotReservations = 0
         const scopedChallengeId = snapshot.challenges.length === 1 ? snapshot.challenges[0]?.id : undefined
         const challengeIdSchema = challengeIds.length > 0 ? Type.Union(challengeIds.map((id) => Type.Literal(id))) : Type.String({ description: "challenge id" })
         const promptNameSchema = solverPromptNames.length > 0 ? Type.Union(solverPromptNames.map((name) => Type.Literal(name))) : Type.String({ description: "solver prompt name" })
@@ -2752,7 +2987,7 @@ export class ChallengeManager {
                 name: "planner_launch_solver",
                 label: "Launch Solver",
                 description:
-                    "Launch a solver for a challenge. Always include entrypoints and solverHandoff: a concise solver-facing startup brief distilled from current project state.",
+                    "Launch solvers for a challenge. Each entrypoint is fanned out to its own solver and the launches run in parallel; always include entrypoints and solverHandoff: a concise solver-facing startup brief distilled from current project state.",
                 parameters: Type.Object({
                     challengeId: challengeIdSchema,
                     promptName: promptNameSchema,
@@ -2784,34 +3019,78 @@ export class ChallengeManager {
                     if (invalidEntryPoints.length > 0) {
                         throw new Error(`entrypoints contain invalid asset hash/target pairs for challenge "${params.challengeId}": ${invalidEntryPoints.map((entrypoint) => entrypoint.asset_hash).join(", ")}`)
                     }
-                    const assignment: SolverAssignment = {
-                        assetHashes: new Set(entrypoints.map((entrypoint) => entrypoint.asset_hash.toLowerCase())),
+                    const assignments = entrypoints.map((entrypoint): SolverAssignment => ({
+                        assetHashes: new Set([entrypoint.asset_hash.toLowerCase()]),
                         testItems: testItems ? new Set(testItems) : undefined,
-                    }
+                    }))
                     const claimedAssignments = claimedAssignmentsByChallenge.get(params.challengeId) ?? []
-                    if (claimedAssignments.some((claimed) => solverAssignmentsOverlap(assignment, claimed))) {
+                    if (assignments.some((assignment, index) =>
+                        claimedAssignments.some((claimed) => solverAssignmentsOverlap(assignment, claimed))
+                        || assignments.slice(0, index).some((previous) => solverAssignmentsOverlap(assignment, previous)))) {
                         throw Object.assign(
                             new Error(`asset/test assignment overlaps a solver already launched in this planner round for challenge "${params.challengeId}"`),
-                            { code: "SOLVER_ASSET_CONFLICT", assetHashes: [...(assignment.assetHashes ?? [])] },
+                            { code: "SOLVER_ASSET_CONFLICT", assetHashes: entrypoints.map((entrypoint) => entrypoint.asset_hash) },
                         )
+                    }
+                    const availableSolverSlots = Math.max(snapshot.constraints.maxSolvers - snapshot.constraints.activeSolvers - launchSlotReservations, 0)
+                    if (assignments.length > availableSolverSlots) {
+                        throw new Error(`not enough solver slots for ${assignments.length} asset assignments; ${availableSolverSlots} available`)
                     }
                     const solverHandoff = clipTaskText(requireText(params.solverHandoff, "solverHandoff"), SOLVER_HANDOFF_MAX_CHARS)
                     this.log("challenge:planner-tool", "launch solver requested", { challengeId: params.challengeId, promptName, entrypoints })
+                    launchSlotReservations += assignments.length
+                    claimedAssignmentsByChallenge.set(params.challengeId, [...claimedAssignments, ...assignments])
+                    let reservationAdjusted = false
+                    let successfulCount = 0
                     try {
-                        const solver = await this.launchSolver(params.challengeId, promptName, { plannerHandoff: solverHandoff, entrypoints, testItems })
-                        launchedSolvers?.push(solver)
-                        claimedAssignmentsByChallenge.set(
-                            params.challengeId,
-                            [...claimedAssignments, assignment],
-                        )
+                        const results = await Promise.allSettled(entrypoints.map((entrypoint) =>
+                            this.launchSolver(params.challengeId, promptName, {
+                                plannerHandoff: solverHandoff,
+                                entrypoints: [entrypoint],
+                                testItems,
+                            }),
+                        ))
+                        const solvers = results.flatMap((result) => result.status === "fulfilled" ? [result.value] : [])
+                        successfulCount = solvers.length
+                        launchedSolvers?.push(...solvers)
+                        const failedAssignments = new Set(results.flatMap((result, index) => result.status === "rejected" ? [assignments[index]] : []))
+                        launchSlotReservations -= failedAssignments.size
+                        reservationAdjusted = true
+                        if (failedAssignments.size > 0) {
+                            const retained = (claimedAssignmentsByChallenge.get(params.challengeId) ?? []).filter((claim) => !failedAssignments.has(claim))
+                            if (retained.length > 0) claimedAssignmentsByChallenge.set(params.challengeId, retained)
+                            else claimedAssignmentsByChallenge.delete(params.challengeId)
+                            const failure = results.find((result) => result.status === "rejected")
+                            if (failure?.status === "rejected") throw failure.reason
+                        }
+                        const result = solvers.length === 1 ? solvers[0] : solvers
                         return {
-                            content: [{ type: "text", text: JSON.stringify(solver, null, 2) }],
-                            details: solver,
+                            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+                            details: result,
                         }
                     } catch (error) {
+                        if (!reservationAdjusted) launchSlotReservations -= assignments.length - successfulCount
                         this.error("challenge:planner-tool", "launch solver failed", error, { challengeId: params.challengeId, promptName })
                         throw error
                     }
+                },
+            }),
+            defineTool({
+                name: "planner_decide_solver",
+                label: "Decide Solver Assignment Review",
+                description: "Act on the Observer's exact checklist audit. Continue the same solver with concrete corrections for missing or unsupported work, or stop an audited completed/legitimately blocked assignment to release its container. This decision is required even when all solver slots are occupied.",
+                parameters: Type.Object({
+                    challengeId: challengeIdSchema,
+                    reviewId: Type.String({ minLength: 1 }),
+                    decision: Type.Union([Type.Literal("continue"), Type.Literal("stop")]),
+                    rationale: Type.String({ minLength: 1 }),
+                    instructions: Type.Optional(Type.String({ minLength: 1 })),
+                }),
+                execute: async (_toolCallId, params) => {
+                    const challenge = snapshotChallenges.get(params.challengeId)
+                    if (!challenge?.solverReviews?.some((review) => review.id === params.reviewId)) throw new Error("review is not in the current Planner snapshot")
+                    await this.decideSolverReview(params.challengeId, params.reviewId, params.decision, params.rationale, params.instructions)
+                    return { content: [{ type: "text", text: `solver review decision applied: ${params.decision}` }], details: { reviewId: params.reviewId, decision: params.decision } }
                 },
             }),
             defineTool({
@@ -2841,6 +3120,16 @@ export class ChallengeManager {
                     const completed = completedAssetTestItems(submissions, params.assetHash)
                     const pending = [...required].filter((item) => !completed.has(item))
                     if (pending.length > 0) throw new Error(`asset still has incomplete assigned test items: ${pending.join(", ")}`)
+                    const auditedCompleted = new Set<string>()
+                    for (const solverId of new Set(assetReports.map((report) => report.solver_id).filter((id): id is string => Boolean(id)))) {
+                        const review = await this.getSolverReviewContext(params.challengeId, solverId)
+                        if (!review.solver_stop_approved) throw new Error(`solver ${solverId} requires an Observer audit and Planner stop decision before asset closure`)
+                        for (const item of review.current_review?.review.checklist ?? []) {
+                            if (item.asset_hash === params.assetHash && item.verdict === "verified") auditedCompleted.add(item.test_item)
+                        }
+                    }
+                    const unverified = [...required].filter((item) => !auditedCompleted.has(item))
+                    if (unverified.length > 0) throw new Error(`asset still has test items without verified Observer evidence: ${unverified.join(", ")}`)
                     this.log("challenge:planner-tool", "asset discoveries reviewed", { challengeId: params.challengeId, assetHash: params.assetHash, rationale: params.rationale })
                     const updated = await this.updateChallengeAssetScanned(params.challengeId, match.group, match.asset.asset, true)
                     if (computeChallengeCompleted(updated)) await this.finishChallenge(params.challengeId)
@@ -2902,6 +3191,7 @@ export class ChallengeManager {
         const submissionsByChallenge = new Map(
             await Promise.all(challenges.map(async (challenge) => [challenge.id, await this.listSubmissionLogs(challenge.id)] as const)),
         )
+        const reviewsByChallenge = new Map(await Promise.all(challenges.map(async (challenge) => [challenge.id, await this.pendingSolverReviews(challenge.id)] as const)))
         const availableAssetsByChallenge = new Map(challenges.map((challenge) => [challenge.id, this.getAvailablePendingAssets(challenge, claimingSolvers, attemptsByChallenge.get(challenge.id) ?? [], submissionsByChallenge.get(challenge.id) ?? [])]))
         const activeAssetClaimsByChallenge = new Map(challenges.map((challenge) => [challenge.id, this.getActiveAssetClaims(challenge.id, claimingSolvers)]))
         const schedulable = challenges.filter((item) => {
@@ -2910,7 +3200,9 @@ export class ChallengeManager {
             const availableAssets = availableAssetsByChallenge.get(item.id) ?? EMPTY_ASSETS
             const hasAvailableAssets = availableAssets.urls.length > 0 || availableAssets.ips.length > 0
             const idleInstance = activeInstance && !activeChallengeIds.has(item.id)
-            if (targetChallengeId) return item.id === targetChallengeId && (hasAvailableAssets || idleInstance)
+            const needsReviewDecision = (reviewsByChallenge.get(item.id)?.length ?? 0) > 0
+            if (targetChallengeId) return item.id === targetChallengeId && (hasAvailableAssets || idleInstance || needsReviewDecision)
+            if (needsReviewDecision) return true
             return (this.isPlannerEnabled(item) && hasAvailableAssets) || (this.isPlannerEnabled(item) && (activeChallengeIds.has(item.id) || activeInstance))
         })
         const modelPrefs = await this.config.listModelPrefs()
@@ -2947,7 +3239,7 @@ export class ChallengeManager {
                     }
                 }
                 const attempts = attemptsByChallenge.get(challenge.id) ?? []
-                return this.buildPlannerSnapshotItem(
+                const item = this.buildPlannerSnapshotItem(
                     challenge,
                     attempts,
                     submissions,
@@ -2958,6 +3250,7 @@ export class ChallengeManager {
                     activeAssetClaimsByChallenge.get(challenge.id) ?? [],
                     board,
                 )
+                return { ...item, solverReviews: reviewsByChallenge.get(challenge.id) ?? [] }
             }),
         )
 
@@ -3141,9 +3434,9 @@ export class ChallengeManager {
                 `- 结束前总结请求、响应边界、已验证事实、Coverage gaps 和未完成工作，然后调用 authorized_work_complete。`,
             ] : [
                 `- 以当前项目为唯一目标推进；完成某个资产测试后，立刻调用 challenge_submit_report 提交该资产的详细报告`,
-                `- 如果一直找不到突破口，并且你觉得已经没有推进的必要，以当前已有的情报完成任务，并通过 challenge_submit_report 进行报告提交`,
+                `- 找不到突破口不等于完成；逐项保留实际尝试与结果，客观受阻时填写 blocked 及阻塞证据，不得以主观判断无推进必要代替执行。`,
                 `- 提交报告时必须用 test_results 逐项原样填写本次测试项：完成填 completed，受阻填 blocked，并写明 evidence；不得省略或把受阻项写成完成。`,
-                `- 额外发现通过 discoveries 上报，说明证据、待验证点和建议后续测试；完成本次分配并提交各入口报告后结束，不继续扩展任务。`,
+                `- 额外发现通过 discoveries 上报，说明证据、待验证点和建议后续测试；提交各入口报告后暂停，等待 Observer 逐项核验与 planner 继续/停止决定，不自行扩展任务。`,
             ]),
             `- 优先基于现有提示、资产信息和项目描述推进，非必要不要偏离目标（如果用户指定说要扫旁路资产）`,
             `- 如果卡住了，可以适当尝试一些可能的攻击手段，但不要偏离项目太远`,

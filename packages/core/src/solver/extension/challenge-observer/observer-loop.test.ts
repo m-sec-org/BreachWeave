@@ -18,7 +18,7 @@ mock.module("../../../challenge/host-bridge-client", () => ({
     markAuthorizedWorkFinished: mock(() => {}),
 }))
 
-const { attachObserverLoop, buildObserverExtensionAppendPrompt } = await import("./observer-loop")
+const { attachObserverLoop, buildObserverExtensionAppendPrompt, retryPendingSolverReview } = await import("./observer-loop")
 const { loadRecentObserverRounds } = await import("./observer-store")
 
 let sessionDir = ""
@@ -88,6 +88,40 @@ afterEach(async () => {
 })
 
 describe("attachObserverLoop", () => {
+    test("keeps mandatory final review when periodic observer is disabled and no rounds exist", async () => {
+        const harness = createExtensionApiHarness()
+        attachObserverLoopForTest(harness.pi as never, { periodicEnabled: false })
+        const ctx = { sessionManager: { getEntries: () => [] } }
+
+        await harness.emit("agent_end", {}, ctx)
+        expect(reviewCalls).toHaveLength(1)
+        expect(reviewCalls[0]?.[1]).toMatchObject({ reason: "agent_end", rounds: [] })
+        expect(reviewCalls[0]?.[2]).toMatchObject({ periodicEnabled: false })
+
+        for (let i = 0; i < 6; i += 1) {
+            await harness.emit("tool_execution_end", { toolCallId: `hint-${i}`, toolName: "challenge_get_hint", result: "hint", isError: false })
+            await harness.emit("message_end", { message: { role: "assistant", content: [{ type: "text", text: "next" }] } }, ctx)
+        }
+        expect(reviewCalls).toHaveLength(1)
+    })
+
+    test("propagates required final review failure and retries it without another solver turn", async () => {
+        const harness = createExtensionApiHarness()
+        let attempts = 0
+        const runReview = mock(async () => {
+            attempts += 1
+            if (attempts === 1) throw new Error("audit unavailable")
+            return { applied: true }
+        })
+        attachObserverLoopForTest(harness.pi as never, { periodicEnabled: false, runReview })
+        const ctx = { sessionManager: { getEntries: () => [] } }
+
+        await expect(harness.emit("agent_end", {}, ctx)).rejects.toThrow("audit unavailable")
+        await retryPendingSolverReview()
+        expect(attempts).toBe(2)
+        await retryPendingSolverReview()
+        expect(attempts).toBe(2)
+    })
     test("retains the full initial assignment and project constraints after session compaction", async () => {
         const harness = createExtensionApiHarness()
         const checklist = Array.from({ length: 12 }, (_, index) => `- 测试项 ${index + 1}: 验证已分配入口的响应、权限边界与可复现证据，记录成功条件和失败边界，不扩大资产范围。`)
