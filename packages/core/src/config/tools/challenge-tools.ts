@@ -18,6 +18,16 @@ const SubmitReportParams = Type.Object({
         description: "Additional findings or test opportunities for the planner to evaluate and assign. Do not expand this solver's assignment to pursue them.",
     })),
 })
+const LifecycleReportParams = Type.Object({
+    asset_hash: Type.String({ minLength: 1 }),
+    report: Type.String({ minLength: 1, description: "报告正文，必须使用中文。" }),
+    test_results: Type.Optional(Type.Array(Type.Object({
+        test_item: Type.String({ minLength: 1 }),
+        status: Type.Union([Type.Literal("completed"), Type.Literal("blocked")]),
+        evidence: Type.String({ minLength: 1 }),
+    }))),
+    discoveries: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
+})
 const ChallengeHintParams = Type.Object({})
 const AuthorizedHttpParams = Type.Object({
     url: Type.String({ minLength: 1, maxLength: 2048 }),
@@ -60,6 +70,30 @@ export const challengeSubmitReportTool = defineTool({
             }],
             details,
         }
+    },
+})
+
+export const challengeSubmitProgressTool = defineTool({
+    name: "challenge_submit_progress",
+    label: "提交增量进度",
+    description: "提交当前分工的增量进度。宿主绑定生命周期身份，增量提交不会停止当前运行。",
+    promptSnippet: "challenge_submit_progress: 提交当前分工的增量报告",
+    parameters: LifecycleReportParams,
+    async execute(_toolCallId, params: Static<typeof LifecycleReportParams>) {
+        const result = await requestHostBridge<{ code: string; operationKey: string }>("challenge_submit_progress", params)
+        return { content: [{ type: "text", text: `增量报告已记录：${result.code}` }], details: result }
+    },
+})
+
+export const challengeSubmitFinalTool = defineTool({
+    name: "challenge_submit_final",
+    label: "提交最终报告",
+    description: "提交当前分工的最终报告。最终提交关闭运行准入并触发独立停止与审核；不得与其他工具混在同一批次。",
+    promptSnippet: "challenge_submit_final: 提交最终报告并结束当前分工运行",
+    parameters: LifecycleReportParams,
+    async execute(_toolCallId, params: Static<typeof LifecycleReportParams>) {
+        const result = await requestHostBridge<{ code: string; operationKey: string; pendingId?: string }>("challenge_submit_final", params)
+        return { content: [{ type: "text", text: result.code === "PENDING_COMMIT" ? `最终报告等待权威提交确认：${result.pendingId ?? result.operationKey}` : "最终报告已接受，当前运行进入停止与审核。" }], details: result }
     },
 })
 
@@ -116,6 +150,8 @@ export const challengeTools = [
     authorizedWorkCompleteTool,
     challengeGetHintTool,
     challengeSubmitReportTool,
+    challengeSubmitProgressTool,
+    challengeSubmitFinalTool,
 ]
 
 export const challengeToolNames = new Set(challengeTools.map((tool) => tool.name))

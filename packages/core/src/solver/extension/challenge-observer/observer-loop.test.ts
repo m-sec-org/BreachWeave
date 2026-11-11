@@ -61,7 +61,7 @@ function attachObserverLoopForTest(pi: Parameters<typeof attachObserverLoop>[0],
     })
 }
 
-async function waitUntil(predicate: () => boolean, timeoutMs = 200): Promise<void> {
+async function waitUntil(predicate: () => boolean, timeoutMs = 1_000): Promise<void> {
     const start = Date.now()
     while (!predicate()) {
         if (Date.now() - start > timeoutMs) {
@@ -121,6 +121,23 @@ describe("attachObserverLoop", () => {
         expect(attempts).toBe(2)
         await retryPendingSolverReview()
         expect(attempts).toBe(2)
+    })
+
+    test("abandons the final review after repeated failures so the solver is not retried forever", async () => {
+        const harness = createExtensionApiHarness()
+        const runReview = mock(async () => {
+            throw new Error("assignment review timed out")
+        })
+        attachObserverLoopForTest(harness.pi as never, { periodicEnabled: false, runReview })
+        const ctx = { sessionManager: { getEntries: () => [] } }
+
+        await expect(harness.emit("agent_end", {}, ctx)).rejects.toThrow("assignment review timed out")
+        await expect(retryPendingSolverReview()).rejects.toThrow("assignment review timed out")
+        await expect(retryPendingSolverReview()).rejects.toThrow("assignment review timed out")
+        expect(runReview).toHaveBeenCalledTimes(3)
+
+        await expect(retryPendingSolverReview()).resolves.toBeUndefined()
+        expect(runReview).toHaveBeenCalledTimes(3)
     })
     test("retains the full initial assignment and project constraints after session compaction", async () => {
         const harness = createExtensionApiHarness()

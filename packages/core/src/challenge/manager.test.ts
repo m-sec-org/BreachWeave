@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test"
-import { mkdtemp, rm } from "fs/promises"
+import { mkdtemp, readdir, rm } from "fs/promises"
 import { tmpdir } from "os"
 import { resolve } from "path"
 import type { ConfigManager } from "../config/index"
@@ -1463,6 +1463,207 @@ describe("challenge-manager local api", () => {
         expect(text).not.toContain("Hint viewed")
     })
 
+    test("planner state marks pending first observation until a report lands", async () => {
+        const challengeId = "mock-first-observation"
+        const asset = "https://first-observation.example"
+        await manager.createChallenge(buildTestChallenge({
+            id: challengeId,
+            assets: { urls: [assetRecord(asset, false), assetRecord("https://first-observation-2.example", false)], ips: [] },
+        }))
+
+        const listAll = mock(async () => [])
+        manager.attachRuntime({ listAll } as never)
+
+        const renderState = async () => {
+            const snapshot = await (manager as unknown as { buildPlannerSnapshot: (reason: string) => Promise<unknown> }).buildPlannerSnapshot("test")
+            const tools = (manager as unknown as { createPlannerTools: (snapshot: unknown) => Array<{ name: string; execute: () => Promise<unknown> }> }).createPlannerTools(snapshot)
+            const stateTool = tools.find((tool) => tool.name === "planner_get_state")
+            const stateResult = await stateTool?.execute() as { content?: Array<{ text?: string }> } | undefined
+            return stateResult?.content?.[0]?.text ?? ""
+        }
+
+        const before = await renderState()
+        expect(before).toContain("- Pending first observation: yes")
+
+        await manager.startChallenge(challengeId)
+        await manager.submitReport(challengeId, { assetHash: hashChallengeAsset(asset), report: "首轮观测报告：资产可达" })
+
+        const after = await renderState()
+        expect(after).toContain("- Pending first observation: no")
+    })
+
+    test("releases a fully reported solver whose observer review never lands", async () => {
+        const challengeId = "mock-stalled-review"
+        const asset = "https://stalled.example"
+        await manager.createChallenge(buildTestChallenge({
+            id: challengeId,
+            assets: { urls: [assetRecord(asset, false), assetRecord("https://stalled-2.example", false)], ips: [] },
+        }))
+        await manager.startChallenge(challengeId)
+        const solverId = "stalledsv"
+        await manager.appendAttemptLog({
+            challengeId,
+            solverId,
+            promptName: "msec-security",
+            task: buildAssignedSolverTask(asset, ["资产可达性验证"]),
+        })
+        await manager.submitReport(challengeId, {
+            solverId,
+            assetHash: hashChallengeAsset(asset),
+            report: "首轮观测报告：资产可达",
+            testResults: [{ test_item: "资产可达性验证", status: "completed", evidence: "HTTP 200" }],
+        })
+        // Age the submission beyond the release grace period.
+        const submissionsDir = resolve(challengeDir, encodeURIComponent(challengeId), "submissions")
+        for (const file of await readdir(submissionsDir)) {
+            const path = resolve(submissionsDir, file)
+            const record = await Bun.file(path).json()
+            await Bun.write(path, JSON.stringify({ ...record, created_at: new Date(Date.now() - 11 * 60_000).toISOString() }, null, 2))
+        }
+
+        const stopSolver = mock(async () => {})
+        manager.attachRuntime({
+            listAll: async () => [{
+                id: solverId,
+                containerId: `tch-solver-${solverId}`,
+                name: `tch-solver-${solverId}`,
+                promptName: "msec-security",
+                task: "",
+                challengeId,
+                status: "running",
+                createdAt: Date.now(),
+            }],
+            isManaged: () => true,
+            stopSolver,
+        } as never)
+
+        await (manager as unknown as { releaseStalledSolvers: () => Promise<void> }).releaseStalledSolvers()
+
+        expect(stopSolver).toHaveBeenCalledWith(solverId)
+        const reviews = await manager.listSolverReviews(challengeId)
+        expect(reviews).toHaveLength(1)
+        expect(reviews[0]?.review.suggested_decision).toBe("stop")
+        expect(reviews[0]?.review.checklist).toEqual([
+            { asset_hash: hashChallengeAsset(asset), test_item: "资产可达性验证", verdict: "verified", evidence: "HTTP 200" },
+        ])
+        expect(reviews[0]?.decision?.action).toBe("stop")
+    })
+
+    test("does not release a solver still inside the review grace window", async () => {
+        const challengeId = "mock-stalled-grace"
+        const asset = "https://stalled-grace.example"
+        await manager.createChallenge(buildTestChallenge({
+            id: challengeId,
+            assets: { urls: [assetRecord(asset, false), assetRecord("https://stalled-grace-2.example", false)], ips: [] },
+        }))
+        await manager.startChallenge(challengeId)
+        const solverId = "gracesv"
+        await manager.appendAttemptLog({
+            challengeId,
+            solverId,
+            promptName: "msec-security",
+            task: buildAssignedSolverTask(asset, ["资产可达性验证"]),
+        })
+        await manager.submitReport(challengeId, {
+            solverId,
+            assetHash: hashChallengeAsset(asset),
+            report: "首轮观测报告：资产可达",
+            testResults: [{ test_item: "资产可达性验证", status: "completed", evidence: "HTTP 200" }],
+        })
+
+        const stopSolver = mock(async () => {})
+        manager.attachRuntime({
+            listAll: async () => [{
+                id: solverId,
+                containerId: `tch-solver-${solverId}`,
+                name: `tch-solver-${solverId}`,
+                promptName: "msec-security",
+                task: "",
+                challengeId,
+                status: "running",
+                createdAt: Date.now(),
+            }],
+            isManaged: () => true,
+            stopSolver,
+        } as never)
+
+        await (manager as unknown as { releaseStalledSolvers: () => Promise<void> }).releaseStalledSolvers()
+
+        expect(stopSolver).not.toHaveBeenCalled()
+        expect(await manager.listSolverReviews(challengeId)).toHaveLength(0)
+    })
+
+    test("reaps solvers whose challenge record no longer exists", async () => {
+        const stopSolver = mock(async () => {})
+        const deleteSolver = mock(async () => {})
+        manager.attachRuntime({
+            listAll: async () => [{
+                id: "orphan1",
+                containerId: "tch-solver-orphan1",
+                name: "tch-solver-orphan1",
+                promptName: "msec-security",
+                task: "",
+                challengeId: "missing-challenge",
+                status: "running",
+                createdAt: Date.now() - 3 * 60_000,
+            }],
+            isManaged: () => false,
+            stopSolver,
+            deleteSolver,
+        } as never)
+
+        await (manager as unknown as { releaseStalledSolvers: () => Promise<void> }).releaseStalledSolvers()
+
+        expect(stopSolver).toHaveBeenCalledWith("orphan1")
+        expect(deleteSolver).toHaveBeenCalledWith("orphan1")
+    })
+
+    test("planner state renders pending reviews compactly without raw JSON", async () => {
+        const challengeId = "mock-review-render"
+        const asset = "https://review-render.example"
+        await manager.createChallenge(buildTestChallenge({
+            id: challengeId,
+            assets: { urls: [assetRecord(asset, false), assetRecord("https://review-render-2.example", false)], ips: [] },
+        }))
+        await manager.startChallenge(challengeId)
+        const solverId = "renderrv"
+        await manager.appendAttemptLog({
+            challengeId,
+            solverId,
+            promptName: "msec-security",
+            task: buildAssignedSolverTask(asset, ["资产可达性验证"]),
+        })
+        await manager.submitReport(challengeId, {
+            solverId,
+            assetHash: hashChallengeAsset(asset),
+            report: "首轮观测报告：资产可达",
+            testResults: [{ test_item: "资产可达性验证", status: "completed", evidence: "HTTP 200" }],
+        })
+        const submissions = await listChallengeSubmissionLogs(challengeDir, challengeId)
+        await manager.submitSolverReview(challengeId, solverId, submissions.map((item) => item.id), {
+            summary: "全部分工有真实证据，可结束。",
+            checklist: [{ asset_hash: hashChallengeAsset(asset), test_item: "资产可达性验证", verdict: "verified", evidence: "curl 返回 HTTP 200，响应头与指纹一致" }],
+            concerns: [],
+            remaining_work: [],
+            suggested_decision: "stop",
+        })
+
+        const listAll = mock(async () => [])
+        manager.attachRuntime({ listAll } as never)
+        const snapshot = await (manager as unknown as { buildPlannerSnapshot: (reason: string) => Promise<unknown> }).buildPlannerSnapshot("test")
+        const tools = (manager as unknown as { createPlannerTools: (snapshot: unknown) => Array<{ name: string; execute: () => Promise<unknown> }> }).createPlannerTools(snapshot)
+        const stateTool = tools.find((tool) => tool.name === "planner_get_state")
+        const stateResult = await stateTool?.execute() as { content?: Array<{ text?: string }> } | undefined
+        const text = stateResult?.content?.[0]?.text ?? ""
+
+        expect(text).toContain("Observer Assignment Reviews Awaiting Planner Decision")
+        expect(text).toContain("reviewId:")
+        expect(text).toContain("suggested: stop, 待决")
+        expect(text).toContain("资产可达性验证: verified")
+        expect(text).not.toContain("\"suggested_decision\"")
+        expect(text).not.toContain("\"checklist\"")
+    })
+
     test("planner state includes shared findings, ideas, blocked test evidence and discoveries", async () => {
         const challengeId = "mock-planner-report-handoff"
         const asset = "https://planner-handoff.example"
@@ -1614,7 +1815,7 @@ describe("challenge-manager local api", () => {
         expect(launch).toHaveBeenCalledTimes(1)
     })
 
-    test("planner launch solver fans multiple assets out to parallel single-asset solvers", async () => {
+    test("planner launch solver keeps multiple assets in one assignment", async () => {
         const firstAsset = "https://first-fanout.example"
         const secondAsset = "https://second-fanout.example"
         const thirdAsset = "https://third-fanout.example"
@@ -1641,7 +1842,7 @@ describe("challenge-manager local api", () => {
             "mock-planner-fanout",
         )
         snapshot.availableSolverPrompts = [{ name: "pentest-orchestrator" }]
-        snapshot.constraints.maxSolvers = 2
+        snapshot.constraints.maxSolvers = 1
         snapshot.constraints.activeSolvers = 0
         const tools = (manager as unknown as { createPlannerTools: (snapshot: unknown) => Array<{ name: string; execute: (_toolCallId: string, params: Record<string, unknown>) => Promise<unknown> }> }).createPlannerTools(snapshot)
         const launchTool = tools.find((tool) => tool.name === "planner_launch_solver")!
@@ -1654,29 +1855,23 @@ describe("challenge-manager local api", () => {
             ],
             testItems: ["Verify login controls"],
             solverHandoff: "Test only the assigned asset and item.",
-        }) as { details: Array<{ id: string }> }
+        }) as { details: { id: string } }
 
-        expect(launch).toHaveBeenCalledTimes(2)
-        expect(result.details).toHaveLength(2)
-        expect(new Set(result.details.map((solver) => solver.id)).size).toBe(2)
-        const launchedTasks = launch.mock.calls.map((call) => call[1] as string)
-        const firstTask = launchedTasks.find((task) => task.includes(firstAsset))
-        const secondTask = launchedTasks.find((task) => task.includes(secondAsset))
-        expect(firstTask).toContain(`目标入口:\n- [${hashChallengeAsset(firstAsset)}] ${firstAsset}`)
-        expect(firstTask).not.toContain(secondAsset)
-        expect(firstTask).toContain("本次测试项:\n- Verify login controls")
-        expect(secondTask).toContain(`目标入口:\n- [${hashChallengeAsset(secondAsset)}] ${secondAsset}`)
-        expect(secondTask).not.toContain(firstAsset)
-        expect(secondTask).toContain("本次测试项:\n- Verify login controls")
+        expect(launch).toHaveBeenCalledTimes(1)
+        expect(result.details.id).toBeDefined()
+        const launchedTask = launch.mock.calls[0]?.[1] as string
+        expect(launchedTask).toContain(`- [${hashChallengeAsset(firstAsset)}] ${firstAsset}`)
+        expect(launchedTask).toContain(`- [${hashChallengeAsset(secondAsset)}] ${secondAsset}`)
+        expect(launchedTask).toContain("本次测试项:\n- Verify login controls")
 
-        await expect(launchTool.execute("fanout-over-capacity", {
+        await expect(launchTool.execute("second-assignment", {
             challengeId: "mock-planner-fanout",
             promptName: "pentest-orchestrator",
             entrypoints: [{ asset_hash: hashChallengeAsset(thirdAsset), asset: thirdAsset }],
-            testItems: ["Verify login controls"],
-            solverHandoff: "This must wait for a slot.",
+            testItems: ["Verify logout controls"],
+            solverHandoff: "Test the separate asset and item.",
         })).rejects.toThrow("not enough solver slots")
-        expect(launch).toHaveBeenCalledTimes(2)
+        expect(launch).toHaveBeenCalledTimes(1)
     })
 
     test("solver launch rejects active asset overlap but allows a disjoint asset", async () => {

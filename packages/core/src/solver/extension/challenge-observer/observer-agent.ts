@@ -11,8 +11,13 @@ import type { SolverAssignmentReview } from "../../../challenge/solver-review"
 import { createObserverSidecarToolsWithOptions } from "./tools"
 import type { ObserverReviewPayload, SolverAssignmentReviewContext } from "./types"
 
-const OBSERVER_REVIEW_TIMEOUT_MS = 120_000
+const OBSERVER_REVIEW_TIMEOUT_MS = 180_000
+/** Full-history assignment audits pace through every evidence page before submitting. */
+const ASSIGNMENT_REVIEW_BASE_TIMEOUT_MS = 300_000
 const MAX_ASSIGNMENT_REVIEW_TIMEOUT_MS = 600_000
+// Smaller pages keep every observer model turn light; a single huge page makes
+// the follow-up turn (digest + structured submit) blow past the timeout budget.
+const ASSIGNMENT_REVIEW_PAGE_SIZE = 12
 const ASSIGNMENT_REVIEW_PARAMS = Type.Object({
     summary: Type.String({ minLength: 1 }),
     checklist: Type.Array(Type.Object({
@@ -365,9 +370,9 @@ function getObserverReviewTimeoutMs(assignmentReviewRequired: boolean, solverEnt
             return total
         }
     }, 0)
-    const extraSizePages = Math.ceil(Math.max(0, historyBytes - 100_000) / 50_000)
+    const extraSizePages = Math.ceil(Math.max(0, historyBytes - 60_000) / 50_000)
     const extraBudget = Math.max(extraPages * 10_000, extraSizePages * 20_000)
-    return Math.min(OBSERVER_REVIEW_TIMEOUT_MS + extraBudget, MAX_ASSIGNMENT_REVIEW_TIMEOUT_MS)
+    return Math.min(ASSIGNMENT_REVIEW_BASE_TIMEOUT_MS + extraBudget, MAX_ASSIGNMENT_REVIEW_TIMEOUT_MS)
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -438,7 +443,7 @@ function createAssignmentReviewTools(solverEntries: unknown[], submit: (review: 
             }),
             async execute(_toolCallId, params) {
                 const offset = params.offset ?? 0
-                const entries = messages.slice(offset, offset + (params.limit ?? 40))
+                const entries = messages.slice(offset, offset + (params.limit ?? ASSIGNMENT_REVIEW_PAGE_SIZE))
                 for (let index = 0; index < entries.length; index += 1) inspectedEntries.add(offset + index)
                 return {
                     content: [{ type: "text", text: JSON.stringify({ total_entries: messages.length, offset, entries }, null, 2) }],
@@ -471,7 +476,7 @@ function buildAssignmentReviewPrompt(challengeId: string, payload: ObserverRevie
         JSON.stringify(context.submissions, null, 2),
         "## Recent Activity (index only; inspect full history for evidence)",
         formatObserverRounds(payload.rounds),
-        "请调用 query_solver_history，每次最多读取 40 条精简历史，对照每个资产/测试项审查遗漏、无依据完成、偷懒或作弊疑点、合理受阻和遗留事项。",
+        "请调用 query_solver_history，每次读取约 12 条精简历史并翻页覆盖全部条目，对照每个资产/测试项审查遗漏、无依据完成、偷懒或作弊疑点、合理受阻和遗留事项。",
         "最后必须调用 submit_assignment_review；普通回复或 NO_CHANGE 都不能代替结构化审查。",
     ].join("\n\n")
 }

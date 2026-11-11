@@ -27,6 +27,7 @@ apps/
 | -------- | ---------------------------------- | ------------------------ |
 | 架构概览 | [ARCHITECTURE.md](ARCHITECTURE.md) | 分层架构、数据流、包依赖 |
 | 设计原稿 | [docs/design.md](docs/design.md)   | 初始架构设计（历史参考） |
+| Pi框架开发文档 | [docs/pi-docs/](docs/pi-docs/)   | Pi框架开发实现参考文档（开发实现参考） |
 
 ## 架构分层
 

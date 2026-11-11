@@ -375,6 +375,15 @@ export interface ChallengeDetails {
     authority_coverage?: import("../authorized-work-view").AuthorizedCoverageCellView[]
     authority_reports?: import("../authorized-work-view").AuthorizedReportIndexView[]
     authority_read_seq?: number
+    lifecycle?: {
+        challengeId: string
+        runtime: "running" | "stopping" | "stopped" | "unknown"
+        assignmentPhase: string
+        reportPhase: "none" | "incremental" | "final" | "pending_commit"
+        reviewState: string
+        finalizationState: "open" | "unknown"
+        pendingDiagnostics: string[]
+    }
 }
 
 export type ChallengeListItem = ChallengeInfoRecord & {

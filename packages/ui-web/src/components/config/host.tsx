@@ -11,6 +11,7 @@ import { Textarea } from "../ui/textarea"
 const DEFAULT_MAX_SOLVERS = 7
 const DEFAULT_PLANNER_TICK_SECONDS = 30
 const DEFAULT_STALE_TIMEOUT_MINUTES = 60
+const DEFAULT_PLANNER_DECISION_TIMEOUT_MINUTES = 5
 const DEFAULT_RUNTIME_NETWORK_MODE = "host"
 const NONE_MODEL_VALUE = "__none__"
 
@@ -41,6 +42,7 @@ export function PlannerPage() {
     const [plannerModelId, setPlannerModelId] = useState("")
     const [plannerTickSeconds, setPlannerTickSeconds] = useState(String(DEFAULT_PLANNER_TICK_SECONDS))
     const [staleTimeoutMinutes, setStaleTimeoutMinutes] = useState(String(DEFAULT_STALE_TIMEOUT_MINUTES))
+    const [decisionTimeoutMinutes, setDecisionTimeoutMinutes] = useState(String(DEFAULT_PLANNER_DECISION_TIMEOUT_MINUTES))
     const [saving, setSaving] = useState(false)
     const [message, setMessage] = useState("")
 
@@ -49,6 +51,7 @@ export function PlannerPage() {
         setNetworkMode(data?.runtime.networkMode === "bridge" ? "bridge" : DEFAULT_RUNTIME_NETWORK_MODE)
         setPlannerTickSeconds(String(Math.max(5, Math.round((data?.planner.tickIntervalMs ?? DEFAULT_PLANNER_TICK_SECONDS * 1000) / 1000))))
         setStaleTimeoutMinutes(String(Math.max(1, Math.round((data?.planner.staleTimeoutMs ?? DEFAULT_STALE_TIMEOUT_MINUTES * 60 * 1000) / 60000))))
+        setDecisionTimeoutMinutes(String(Math.max(1, Math.round((data?.planner.decisionTimeoutMs ?? DEFAULT_PLANNER_DECISION_TIMEOUT_MINUTES * 60 * 1000) / 60000))))
     }, [data])
 
     useEffect(() => {
@@ -70,6 +73,7 @@ export function PlannerPage() {
                 planner: {
                     tickIntervalMs: Math.max(5, Number(plannerTickSeconds) || DEFAULT_PLANNER_TICK_SECONDS) * 1000,
                     staleTimeoutMs: Math.max(1, Number(staleTimeoutMinutes) || DEFAULT_STALE_TIMEOUT_MINUTES) * 60 * 1000,
+                    decisionTimeoutMs: Math.max(1, Number(decisionTimeoutMinutes) || DEFAULT_PLANNER_DECISION_TIMEOUT_MINUTES) * 60 * 1000,
                 },
             })
             setMessage("Saved")
@@ -133,6 +137,17 @@ export function PlannerPage() {
                             onChange={(event) => setStaleTimeoutMinutes(event.target.value)}
                         />
                         <div className="text-sm text-muted-foreground">某题占用 solver 超过这个时长后，会被视为 stale，调度器可把窗口让给别的题。</div>
+                    </div>
+                    <div className="space-y-2">
+                        <Label htmlFor="planner-decision-timeout">Planner Decision Timeout Minutes</Label>
+                        <Input
+                            id="planner-decision-timeout"
+                            type="number"
+                            min="1"
+                            value={decisionTimeoutMinutes}
+                            onChange={(event) => setDecisionTimeoutMinutes(event.target.value)}
+                        />
+                        <div className="text-sm text-muted-foreground">单轮 planner 调度（含模型推理与工具调用）的硬性时限。慢模型或大状态请调大。最小 1 分钟。</div>
                     </div>
                 </div>
             </div>

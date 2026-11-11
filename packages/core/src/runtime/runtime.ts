@@ -33,6 +33,7 @@ import {
 } from "./helpers"
 const SOLVER_NAME_PREFIX = "tch-solver"
 const DOCKER_PROXY_ENV_KEYS = ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy"] as const
+const CONTAINER_RUNNING_CACHE_MS = 15_000
 export const MODEL_BRIDGE_PLACEHOLDER = "TCH_MODEL_BRIDGE_PLACEHOLDER"
 
 interface AuthorizedModelTransportBinding {
@@ -273,6 +274,7 @@ export class RuntimeManager {
     private authorizedModelBindings = new Map<string, AuthorizedModelTransportBinding>()
     private authorizedModelRequests = new Map<string, Map<string, AuthorizedModelRequest>>()
     private liveMainThreadMessages = new Map<string, Message[]>()
+    private containerRunningCache = new Map<string, { checkedAt: number; running: boolean }>()
     private hostBridgeHandlers: HostBridgeHandler[]
     private hostConfig: ConfigManager
     private ready: Promise<void>
@@ -360,6 +362,7 @@ export class RuntimeManager {
         this.authorizedModelRequests.delete(solverId)
         this.procs.delete(solverId)
         this.solverEnvs.delete(solverId)
+        this.containerRunningCache.delete(`${SOLVER_NAME_PREFIX}-${solverId}`)
         const authorizedBinding = this.authorizedModelBindings.get(solverId)
         if (authorizedBinding) {
             authorizedBinding.apiKey = ""
@@ -955,10 +958,32 @@ export class RuntimeManager {
         proc.stdin.write(JSON.stringify(command) + "\n")
     }
 
+    /** Check whether the solver's container is actually running on the Docker daemon */
+    private async isContainerRunning(containerId: string): Promise<boolean> {
+        const cached = this.containerRunningCache.get(containerId)
+        if (cached && Date.now() - cached.checkedAt < CONTAINER_RUNNING_CACHE_MS) return cached.running
+        let running = false
+        try {
+            const info = await this.docker.getContainer(containerId).inspect()
+            running = info.State?.Running === true
+        } catch {
+            running = false
+        }
+        this.containerRunningCache.set(containerId, { checkedAt: Date.now(), running })
+        return running
+    }
+
     /** Stop a solver container */
     async stopSolver(solverId: string) {
-        const solver = this.solvers.get(solverId)
-        if (!solver) throw new Error(`Solver ${solverId} not found`)
+        let solver = this.solvers.get(solverId)
+        if (!solver) {
+            // Reconstruct from disk so zombies left by a restart or a deleted
+            // challenge can still be stopped by container name.
+            const reconstructed = (await this.listAll()).find((item) => item.id === solverId)
+            if (!reconstructed) throw new Error(`Solver ${solverId} not found`)
+            solver = reconstructed
+            this.solvers.set(solverId, solver)
+        }
         if (solver.status === "stopped" && !this.procs.has(solverId)) return
 
         const previousStatus = solver.status
@@ -985,12 +1010,26 @@ export class RuntimeManager {
             stdout: "ignore",
             stderr: "ignore",
         })
-        return stop.exited
+        // A hung `docker stop` CLI would freeze the caller (and the sync loop's
+        // release sweep with it); bound it and let the error path restore state.
+        const killTimer = setTimeout(() => {
+            stop.kill()
+        }, 45_000)
+        try {
+            return await stop.exited
+        } finally {
+            clearTimeout(killTimer)
+        }
     }
 
     /** List all tracked solver instances */
     list(): SolverInstance[] {
         return [...this.solvers.values()]
+    }
+
+    /** Whether this manager owns the solver's live RPC process */
+    isManaged(solverId: string): boolean {
+        return this.procs.has(solverId)
     }
 
     async listAll(): Promise<SolverInstance[]> {
@@ -1014,19 +1053,26 @@ export class RuntimeManager {
                 startup && typeof startup === "object" && "init" in startup
                     ? (startup as { init?: { promptName?: string; task?: string; challengeId?: string; projectId?: string } }).init
                     : undefined
-            const status = getAssistantError(mainSession.messages) ? "error" : "stopped"
+            const containerId = `${SOLVER_NAME_PREFIX}-${solverId}`
+            // An untracked solver dir may belong to a container that is still
+            // alive (e.g. launched right before a challenge delete, or orphaned
+            // by a daemon restart). Report it as running so callers can stop it
+            // instead of silently leaking the container.
+            const containerRunning = await this.isContainerRunning(containerId)
+            const assistantError = getAssistantError(mainSession.messages)
+            const status = containerRunning ? "running" : assistantError ? "error" : "stopped"
             const createdAt = await getStableSolverCreatedAt(solverId, startup, mainSession.createdAt)
             items.set(solverId, {
                 id: solverId,
-                containerId: `${SOLVER_NAME_PREFIX}-${solverId}`,
-                name: `${SOLVER_NAME_PREFIX}-${solverId}`,
+                containerId,
+                name: containerId,
                 promptName: startupInit?.promptName ?? "unknown",
                 task: startupInit?.task ?? "",
                 challengeId: startupInit?.challengeId?.trim() || undefined,
                 projectId: startupInit?.projectId?.trim() || undefined,
                 status,
                 createdAt,
-                error: getAssistantError(mainSession.messages),
+                error: assistantError,
             })
         }
 

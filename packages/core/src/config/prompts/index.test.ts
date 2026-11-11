@@ -61,6 +61,8 @@ describe("builtin prompt fallback", () => {
         expect(prompt?.content).toBe(builtin?.content)
         expect(prompt?.content).toContain("{{AVAILABLE_SOLVER_PROMPTS}}")
         expect(prompt?.content).toContain("{{CHALLENGE_STATE}}")
+        expect(prompt?.content).toContain("首轮目标观测")
+        expect(prompt?.content).toContain("Pending first observation")
         expect(await promptFile.text()).toBe(raw)
     })
 })

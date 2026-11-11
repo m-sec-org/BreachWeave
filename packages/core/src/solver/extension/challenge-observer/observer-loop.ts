@@ -8,6 +8,7 @@ import type { ObserverReviewPayload, ObserverRoundPayload, ObserverToolLog } fro
 
 const OBSERVER_REVIEW_EVERY_ROUNDS = 6
 const OBSERVER_REVIEW_WINDOW_ROUNDS = 10
+const OBSERVER_FINAL_REVIEW_MAX_ATTEMPTS = 3
 const OBSERVER_REMINDER_COOLDOWN_ROUNDS = 6
 const OBSERVER_REMINDER_REPEAT_WINDOW_ROUNDS = 12
 const OBSERVER_REMINDER_ACTIVITY_WINDOW_ROUNDS = 3
@@ -293,6 +294,8 @@ export function attachObserverLoop(pi: ExtensionAPI, options: ObserverLoopOption
     const periodicEnabled = options.periodicEnabled !== false
     let reviewDrain = Promise.resolve()
     let finalReviewFailed = false
+    let finalReviewAttempts = 0
+    let finalReviewAbandoned = false
 
     const roundStateReady = updateObserverState((state) => ({
         nextState: {
@@ -327,9 +330,20 @@ export function attachObserverLoop(pi: ExtensionAPI, options: ObserverLoopOption
                         return true
                     },
                 })
-                if (next.reason === "agent_end") finalReviewFailed = false
+                if (next.reason === "agent_end") {
+                    finalReviewFailed = false
+                    finalReviewAttempts = 0
+                }
             } catch (error) {
                 if (next.reason === "agent_end") {
+                    finalReviewAttempts += 1
+                    if (finalReviewAttempts >= OBSERVER_FINAL_REVIEW_MAX_ATTEMPTS) {
+                        // Endless retries keep the paused solver alive forever.
+                        // Give up and let the host's stalled-review fallback release it.
+                        finalReviewAbandoned = true
+                        console.error(`[observer] final assignment review abandoned after ${finalReviewAttempts} attempts: ${error instanceof Error ? error.message : String(error)}`)
+                        throw error
+                    }
                     finalReviewFailed = true
                     await enqueueObserverReview(next)
                     throw error
@@ -340,7 +354,7 @@ export function attachObserverLoop(pi: ExtensionAPI, options: ObserverLoopOption
     }
 
     retryPendingReview = async () => {
-        if (!finalReviewFailed) return
+        if (!finalReviewFailed || finalReviewAbandoned) return
         const retry = reviewDrain.then(drainReviewQueue)
         reviewDrain = retry.catch((error) => {
             console.error(`[observer] retry failed: ${error instanceof Error ? error.message : String(error)}`)
@@ -440,6 +454,10 @@ export function attachObserverLoop(pi: ExtensionAPI, options: ObserverLoopOption
 
     pi.on("agent_end", async (_event, ctx) => {
         await roundStateReady
+        // A fresh agent_end starts a new review cycle (e.g. after a continue
+        // decision), so earlier abandonments no longer apply.
+        finalReviewAttempts = 0
+        finalReviewAbandoned = false
         const reviewRounds = await loadRecentObserverRounds(OBSERVER_REVIEW_WINDOW_ROUNDS)
         await enqueueReview(buildObserverPayload(ctx, "agent_end", reviewRounds, buildSessionContext))
     })

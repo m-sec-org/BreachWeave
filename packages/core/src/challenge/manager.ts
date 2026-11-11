@@ -64,12 +64,18 @@ import type { AuthorizedChallengeProjection, AuthorizedChallengeProjectionProvid
 import type { AuthorizedProjectBinding } from "../config/authorized-projects"
 import type { SolverAssignmentReview, SolverReviewRecord } from "./solver-review"
 import { listSolverReviews, saveSolverReview } from "./solver-review"
+import { createManagerLifecycleService, type LifecycleReportInput, type ManagerLifecycleService } from "./lifecycle-service"
 
 export type { IdeaStatus, MemoryKind, MemoryEntry, AddMemoryInput, IdeaRecord, AddIdeaInput, AddIdeaResult, UpdateIdeaInput } from "./memory"
 
 const DEFAULT_PLANNER_PROMPT_NAME = CHALLENGE_PLANNER_PROMPT_NAME
 const DEFAULT_TICK_INTERVAL_MS = 30_000
 const DEFAULT_STALE_TIMEOUT_MS = 60 * 60 * 1000
+const DEFAULT_PLANNER_DECISION_TIMEOUT_MS = 300_000
+/** Grace before the host accepts a fully reported assignment whose Observer review never lands. */
+const SOLVER_REVIEW_RELEASE_GRACE_MS = 10 * 60_000
+/** A running container this daemon cannot talk to is reaped after this launch window. */
+const UNMANAGED_SOLVER_REAP_AFTER_MS = 2 * 60_000
 const DEFAULT_MAX_SOLVERS = 7
 const MAX_ACTIVE_CHALLENGES = 3
 const NOISY_ERROR_THROTTLE_WINDOW_MS = 60_000
@@ -451,6 +457,10 @@ function resolvePlannerTickIntervalMs(value?: number): number {
     return clampInt(value ?? DEFAULT_TICK_INTERVAL_MS, 5_000, 10 * 60 * 1000)
 }
 
+function resolvePlannerDecisionTimeoutMs(value?: number): number {
+    return clampInt(value ?? DEFAULT_PLANNER_DECISION_TIMEOUT_MS, 60_000, 10 * 60 * 1000)
+}
+
 function sanitizePlannerRoundScope(value: string): string {
     return value.trim().replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "challenge"
 }
@@ -548,6 +558,46 @@ function selectRecentItems<T extends { updated_at?: string }>(items: T[], limit:
     return sortByUpdatedAtDesc(items).slice(0, limit)
 }
 
+/** Degraded Observer review derived from the solver's own submitted reports. */
+function buildFallbackAssignmentReview(task: string, submissions: ChallengeSubmissionLogRecord[]): SolverAssignmentReview {
+    const checklist: SolverAssignmentReview["checklist"] = []
+    const seen = new Set<string>()
+    const remainingWork: string[] = []
+    const hasAssignedTests = extractSolverTestItems(task).size > 0
+    for (const submission of submissions) {
+        const results = submission.test_results ?? []
+        if (results.length === 0) {
+            const item = "全量测试"
+            const key = `${submission.asset_hash}\n${item}`
+            if (!seen.has(key)) {
+                seen.add(key)
+                checklist.push({ asset_hash: submission.asset_hash, test_item: item, verdict: "verified", evidence: clipTaskText(submission.report, SOLVER_MEMORY_CONTENT_MAX_CHARS * 2) })
+            }
+            continue
+        }
+        for (const result of results) {
+            const key = `${submission.asset_hash}\n${result.test_item}`
+            if (seen.has(key)) continue
+            seen.add(key)
+            const blocked = result.status === "blocked"
+            checklist.push({
+                asset_hash: submission.asset_hash,
+                test_item: result.test_item,
+                verdict: blocked ? "blocked" : "verified",
+                evidence: clipTaskText(result.evidence, SOLVER_MEMORY_CONTENT_MAX_CHARS * 2),
+            })
+            if (blocked) remainingWork.push(`${submission.asset} ${result.test_item}`)
+        }
+    }
+    return {
+        summary: "Observer 独立审查在宽限期内未完成（多次超时/失败），宿主按 solver 自报结果生成降级审查以释放该分工。",
+        checklist,
+        concerns: ["降级审查：未经 Observer 独立证据核验，逐项结论直接来自 solver 自报的 test_results；如需强证据请安排复核。"],
+        remaining_work: hasAssignedTests ? remainingWork : [],
+        suggested_decision: "stop",
+    }
+}
+
 function formatSolverMemorySection(items: MemoryEntry[]): string {
     if (items.length === 0) return "无"
     const selected = selectRecentItems(items, SOLVER_MEMORY_LIMIT)
@@ -592,6 +642,19 @@ function formatSolverSubmissionsSection(items: ChallengeSubmissionLogRecord[]): 
         ["Asset", "Report"],
         sorted.map((item) => [item.asset, clipTaskText(item.report, SOLVER_MEMORY_CONTENT_MAX_CHARS)]),
     )
+}
+
+/** Compact pending-review rendering: keep decision-relevant signal, drop bulky evidence JSON. */
+function formatSolverReviewMarkdown(review: SolverReviewRecord): string {
+    return [
+        `- reviewId: ${review.id} (solver ${review.solver_id}, suggested: ${review.review.suggested_decision}${review.decision ? `, decided: ${review.decision.action}` : ", 待决"})`,
+        `  summary: ${clipTaskText(review.review.summary, 200)}`,
+        ...review.review.checklist.map((item) => `  - ${item.asset_hash.slice(0, 8)} ${item.test_item}: ${item.verdict} (evidence: ${clipTaskText(item.evidence, 160)})`),
+        review.review.concerns.length > 0 ? `  concerns: ${review.review.concerns.map((item) => clipTaskText(item, 120)).join("；")}` : undefined,
+        review.review.remaining_work.length > 0 ? `  remaining_work: ${review.review.remaining_work.map((item) => clipTaskText(item, 120)).join("；")}` : undefined,
+    ]
+        .filter((line): line is string => typeof line === "string")
+        .join("\n")
 }
 
 function extractTextContent(content: Array<{ type: string; text?: string }> | undefined): string {
@@ -703,8 +766,9 @@ function formatPlannerSnapshotMarkdown(snapshot: PlannerSnapshot): string {
             `- Available unclaimed pending targets: ${challenge.availableAssets.urls.length + challenge.availableAssets.ips.length}`,
             `- Attempt count: ${challenge.attemptCount}`,
             `- Report count: ${challenge.reportCount}`,
+            `- Pending first observation: ${challenge.reportCount === 0 ? "yes" : "no"}`,
             "#### Observer Assignment Reviews Awaiting Planner Decision",
-            ...(challenge.solverReviews?.length ? challenge.solverReviews.map((review) => JSON.stringify(review)) : ["None"]),
+            ...(challenge.solverReviews?.length ? challenge.solverReviews.map((review) => formatSolverReviewMarkdown(review)) : ["None"]),
             "- 对每份待决审查必须调用 planner_decide_solver；审核有遗漏、缺乏执行证据、虚报或偷懒时 continue 原 solver 并给整改清单；正常完成或有证据的真实阻塞允许 stop 释放容器。不能因资源已满、项目不 stale 或资产仍被认领而跳过审查。",
             "#### Shared Findings / Memory",
             formatSolverMemorySection(challenge.sharedMemory),
@@ -905,6 +969,7 @@ export class ChallengeManager {
     private readonly taricMemoryProvider?: ChallengeMemoryProvider
     private readonly taricMemoryProviderFactory?: TaricMemoryProviderFactory
     private readonly authorizedProjectionProvider?: AuthorizedChallengeProjectionProvider
+    private readonly lifecycleService: ManagerLifecycleService
     private readonly generatedTaricProviders = new Map<string, Promise<ChallengeMemoryProvider>>()
     private api: ChallengeApiClient | undefined
     private rootDir: string | undefined
@@ -922,12 +987,30 @@ export class ChallengeManager {
     private authorizedStartupRecovery?: Promise<AuthorizedStartupRecovery[]>
     private readonly authorizedRecoveryByChallenge = new Map<string, AuthorizedStartupRecovery>()
 
-    constructor(config: ConfigManager, memoryProvider?: ChallengeMemoryProvider, taricMemoryProvider?: ChallengeMemoryProvider, taricMemoryProviderFactory?: TaricMemoryProviderFactory, authorizedProjectionProvider?: AuthorizedChallengeProjectionProvider) {
+    constructor(config: ConfigManager, memoryProvider?: ChallengeMemoryProvider, taricMemoryProvider?: ChallengeMemoryProvider, taricMemoryProviderFactory?: TaricMemoryProviderFactory, authorizedProjectionProvider?: AuthorizedChallengeProjectionProvider, lifecycleService?: ManagerLifecycleService) {
         this.config = config
         this.memoryProvider = memoryProvider ?? new FileChallengeMemoryProvider(async () => this.getRootDir())
         this.taricMemoryProvider = taricMemoryProvider
         this.taricMemoryProviderFactory = taricMemoryProviderFactory
         this.authorizedProjectionProvider = authorizedProjectionProvider
+        this.lifecycleService = lifecycleService ?? createManagerLifecycleService()
+    }
+
+    /** 生命周期写入只经过 Manager 服务；ChallengeRecord 仅作为 competition 投影。 */
+    getLifecycleService(): ManagerLifecycleService {
+        return this.lifecycleService
+    }
+
+    async submitLifecycleProgress(input: LifecycleReportInput) {
+        return this.lifecycleService.submitProgress(input)
+    }
+
+    async submitLifecycleFinal(input: LifecycleReportInput, batch?: Parameters<ManagerLifecycleService["submitFinal"]>[1]) {
+        return this.lifecycleService.submitFinal(input, batch)
+    }
+
+    async getLifecycleProjection(challengeId: string) {
+        return this.lifecycleService.projection(challengeId)
     }
 
     private isAuthorizedChallenge(challenge: ChallengeInfoRecord | undefined): boolean {
@@ -1418,6 +1501,12 @@ export class ChallengeManager {
             try {
                 const settings = await this.config.getHostSettings()
                 nextIntervalMs = resolvePlannerTickIntervalMs(settings.planner.tickIntervalMs)
+                // Safety sweep must run even when the planner gate is closed
+                // (e.g. one solver claims every pending asset while its Observer
+                // review never lands) — otherwise stalled solvers are never released.
+                await this.releaseStalledSolvers().catch((error) => {
+                    this.error("challenge:planner", "stalled solver release sweep failed", error)
+                })
                 if (await this.shouldRunPlannerForPendingAssets(settings)) {
                     await this.tickPlanner("challenge-planner:loop")
                 }
@@ -2256,6 +2345,70 @@ export class ChallengeManager {
         }
     }
 
+    /**
+     * Periodic safety sweep:
+     * - Solvers still active for a challenge record that no longer exists are
+     *   stopped and archived (their host bridge is already dead).
+     * - A solver that fully reported its assignment but whose Observer review
+     *   never lands (e.g. the observer keeps timing out) is released after the
+     *   grace period via a degraded fallback review + stop decision.
+     */
+    private async releaseStalledSolvers(): Promise<void> {
+        const runtime = this.runtime
+        if (!runtime || typeof runtime.listAll !== "function") return
+        const activeSolvers = (await runtime.listAll()).filter((solver) => typeof solver.challengeId === "string" && solver.challengeId.trim().length > 0 && isClaimingSolver(solver))
+        const solversByChallenge = new Map<string, SolverInstance[]>()
+        for (const solver of activeSolvers) {
+            const group = solversByChallenge.get(solver.challengeId!) ?? []
+            group.push(solver)
+            solversByChallenge.set(solver.challengeId!, group)
+        }
+        for (const [challengeId, solvers] of solversByChallenge) {
+            const challenge = await this.getChallenge(challengeId).catch(() => undefined)
+            if (!challenge) {
+                for (const solver of solvers) {
+                    try {
+                        await runtime.stopSolver(solver.id)
+                        await runtime.deleteSolver(solver.id)
+                        this.log("challenge:planner", "reaped solver of removed challenge", { challengeId, solverId: solver.id })
+                    } catch (error) {
+                        this.error("challenge:planner", "failed to reap solver of removed challenge", error, { challengeId, solverId: solver.id })
+                    }
+                }
+                continue
+            }
+            for (const solver of solvers) {
+                // A live container this daemon no longer controls (e.g. after a
+                // restart) can never report or receive commands; reap it once it
+                // is clearly past its launch window.
+                const managed = typeof runtime.isManaged === "function" ? runtime.isManaged(solver.id) : true
+                if (!managed && Date.now() - solver.createdAt > UNMANAGED_SOLVER_REAP_AFTER_MS) {
+                    try {
+                        await runtime.stopSolver(solver.id)
+                        await runtime.deleteSolver(solver.id)
+                        this.log("challenge:planner", "reaped unmanaged solver container", { challengeId, solverId: solver.id })
+                    } catch (error) {
+                        this.error("challenge:planner", "failed to reap unmanaged solver", error, { challengeId, solverId: solver.id })
+                    }
+                    continue
+                }
+                if (this.isAuthorizedChallenge(challenge)) continue
+                try {
+                    const context = await this.getSolverReviewContext(challengeId, solver.id)
+                    if (!context.review_required) continue
+                    const lastSubmissionAt = Math.max(0, ...context.submissions.map((submission) => parseTimestamp(submission.created_at) ?? 0))
+                    if (Date.now() - lastSubmissionAt < SOLVER_REVIEW_RELEASE_GRACE_MS) continue
+                    const review = buildFallbackAssignmentReview(context.task, context.submissions)
+                    const record = await this.submitSolverReview(challengeId, solver.id, context.submission_ids, review)
+                    await this.decideSolverReview(challengeId, record.id, "stop", "Observer 审查在宽限期内未完成；宿主按自报结果降级收尾并释放该分工。")
+                    this.log("challenge:planner", "released solver with stalled observer review", { challengeId, solverId: solver.id, lastSubmissionAgoMs: Date.now() - lastSubmissionAt })
+                } catch (error) {
+                    this.error("challenge:planner", "stalled solver review release failed", error, { challengeId, solverId: solver.id })
+                }
+            }
+        }
+    }
+
     async decideSolverReview(challengeId: string, reviewId: string, action: "continue" | "stop", rationale: string, instructions?: string): Promise<void> {
         const record = (await this.listSolverReviews(challengeId)).find((item) => item.id === reviewId)
         if (!record) throw new Error("Observer review not found")
@@ -2285,7 +2438,8 @@ export class ChallengeManager {
         record.decision ??= { action, rationale: reason, ...(instructions ? { instructions } : {}), decided_at: new Date().toISOString() }
         await saveSolverReview(await this.getRootDir(), record)
         if (action === "stop") {
-            if (isActiveSolver(solver)) await runtime.stopSolver(record.solver_id)
+            // Include solvers stuck in "stopping": their containers may still be alive.
+            if (isClaimingSolver(solver)) await runtime.stopSolver(record.solver_id)
         } else {
             runtime.sendCommand(record.solver_id, {
                 type: "resume_assignment", reviewId,
@@ -2846,6 +3000,8 @@ export class ChallengeManager {
                 if (plannerStreaming) process.stdout.write("\n")
                 plannerMessage = extractTextContent(event.message.content as Array<{ type: string; text?: string }> | undefined)
                 plannerStopReason = event.message.stopReason ?? ""
+                const modelError = "errorMessage" in event.message && typeof event.message.errorMessage === "string" ? event.message.errorMessage : undefined
+                if (modelError) this.error("challenge:planner", "planner model error", undefined, { stopReason: plannerStopReason, errorMessage: modelError })
             }
             if (event.type === "tool_execution_start") {
                 plannerActions.set(event.toolCallId, `${event.toolName} ${JSON.stringify(event.args ?? {})}`)
@@ -2856,6 +3012,7 @@ export class ChallengeManager {
         })
 
         let plannerTimeout: ReturnType<typeof setTimeout> | undefined
+        const decisionTimeoutMs = resolvePlannerDecisionTimeoutMs((await this.config.getHostSettings()).planner.decisionTimeoutMs)
         try {
             await Promise.race([
                 session.prompt(
@@ -2867,7 +3024,7 @@ export class ChallengeManager {
                     plannerTimeout = setTimeout(() => {
                         void session.abort().catch(() => {})
                         reject(new Error("Planner decision timed out; pending reviews remain available for retry"))
-                    }, 120_000)
+                    }, decisionTimeoutMs)
                 }),
             ])
         } finally {
@@ -2987,7 +3144,7 @@ export class ChallengeManager {
                 name: "planner_launch_solver",
                 label: "Launch Solver",
                 description:
-                    "Launch solvers for a challenge. Each entrypoint is fanned out to its own solver and the launches run in parallel; always include entrypoints and solverHandoff: a concise solver-facing startup brief distilled from current project state.",
+                    "Launch one solver for a challenge. All entrypoints and testItems in this call form one assignment; use another call only when the assignment is explicitly split. Always include entrypoints and solverHandoff: a concise solver-facing startup brief distilled from current project state.",
                 parameters: Type.Object({
                     challengeId: challengeIdSchema,
                     promptName: promptNameSchema,
@@ -3019,57 +3176,38 @@ export class ChallengeManager {
                     if (invalidEntryPoints.length > 0) {
                         throw new Error(`entrypoints contain invalid asset hash/target pairs for challenge "${params.challengeId}": ${invalidEntryPoints.map((entrypoint) => entrypoint.asset_hash).join(", ")}`)
                     }
-                    const assignments = entrypoints.map((entrypoint): SolverAssignment => ({
-                        assetHashes: new Set([entrypoint.asset_hash.toLowerCase()]),
+                    const assignment: SolverAssignment = {
+                        assetHashes: new Set(entrypoints.map((entrypoint) => entrypoint.asset_hash.toLowerCase())),
                         testItems: testItems ? new Set(testItems) : undefined,
-                    }))
+                    }
                     const claimedAssignments = claimedAssignmentsByChallenge.get(params.challengeId) ?? []
-                    if (assignments.some((assignment, index) =>
-                        claimedAssignments.some((claimed) => solverAssignmentsOverlap(assignment, claimed))
-                        || assignments.slice(0, index).some((previous) => solverAssignmentsOverlap(assignment, previous)))) {
+                    if (claimedAssignments.some((claimed) => solverAssignmentsOverlap(assignment, claimed))) {
                         throw Object.assign(
                             new Error(`asset/test assignment overlaps a solver already launched in this planner round for challenge "${params.challengeId}"`),
-                            { code: "SOLVER_ASSET_CONFLICT", assetHashes: entrypoints.map((entrypoint) => entrypoint.asset_hash) },
+                            { code: "SOLVER_ASSET_CONFLICT", assetHashes: [...(assignment.assetHashes ?? [])] },
                         )
                     }
                     const availableSolverSlots = Math.max(snapshot.constraints.maxSolvers - snapshot.constraints.activeSolvers - launchSlotReservations, 0)
-                    if (assignments.length > availableSolverSlots) {
-                        throw new Error(`not enough solver slots for ${assignments.length} asset assignments; ${availableSolverSlots} available`)
+                    if (availableSolverSlots < 1) {
+                        throw new Error(`not enough solver slots for 1 asset assignment; ${availableSolverSlots} available`)
                     }
                     const solverHandoff = clipTaskText(requireText(params.solverHandoff, "solverHandoff"), SOLVER_HANDOFF_MAX_CHARS)
                     this.log("challenge:planner-tool", "launch solver requested", { challengeId: params.challengeId, promptName, entrypoints })
-                    launchSlotReservations += assignments.length
-                    claimedAssignmentsByChallenge.set(params.challengeId, [...claimedAssignments, ...assignments])
-                    let reservationAdjusted = false
-                    let successfulCount = 0
+                    launchSlotReservations += 1
                     try {
-                        const results = await Promise.allSettled(entrypoints.map((entrypoint) =>
-                            this.launchSolver(params.challengeId, promptName, {
-                                plannerHandoff: solverHandoff,
-                                entrypoints: [entrypoint],
-                                testItems,
-                            }),
-                        ))
-                        const solvers = results.flatMap((result) => result.status === "fulfilled" ? [result.value] : [])
-                        successfulCount = solvers.length
-                        launchedSolvers?.push(...solvers)
-                        const failedAssignments = new Set(results.flatMap((result, index) => result.status === "rejected" ? [assignments[index]] : []))
-                        launchSlotReservations -= failedAssignments.size
-                        reservationAdjusted = true
-                        if (failedAssignments.size > 0) {
-                            const retained = (claimedAssignmentsByChallenge.get(params.challengeId) ?? []).filter((claim) => !failedAssignments.has(claim))
-                            if (retained.length > 0) claimedAssignmentsByChallenge.set(params.challengeId, retained)
-                            else claimedAssignmentsByChallenge.delete(params.challengeId)
-                            const failure = results.find((result) => result.status === "rejected")
-                            if (failure?.status === "rejected") throw failure.reason
-                        }
-                        const result = solvers.length === 1 ? solvers[0] : solvers
+                        const solver = await this.launchSolver(params.challengeId, promptName, {
+                            plannerHandoff: solverHandoff,
+                            entrypoints,
+                            testItems,
+                        })
+                        launchedSolvers?.push(solver)
+                        claimedAssignmentsByChallenge.set(params.challengeId, [...claimedAssignments, assignment])
                         return {
-                            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-                            details: result,
+                            content: [{ type: "text", text: JSON.stringify(solver, null, 2) }],
+                            details: solver,
                         }
                     } catch (error) {
-                        if (!reservationAdjusted) launchSlotReservations -= assignments.length - successfulCount
+                        launchSlotReservations -= 1
                         this.error("challenge:planner-tool", "launch solver failed", error, { challengeId: params.challengeId, promptName })
                         throw error
                     }

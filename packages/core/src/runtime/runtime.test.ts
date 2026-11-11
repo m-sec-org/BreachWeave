@@ -214,6 +214,35 @@ describe("RuntimeManager status notifications", () => {
         expect(stopContainer).not.toHaveBeenCalled()
         expect(onStatusChange).not.toHaveBeenCalled()
     })
+
+    test("stopSolver reconstructs an untracked solver so zombie containers can be stopped", async () => {
+        const { runtime } = await createRuntimeManager()
+        const manager = runtime as unknown as {
+            solvers: Map<string, SolverInstance>
+            procs: Map<string, Subprocess<"pipe", "pipe", "pipe">>
+            stopContainer(containerId: string): Promise<number>
+            listAll(): Promise<SolverInstance[]>
+        }
+        const zombie: SolverInstance = {
+            id: "zombie-1",
+            containerId: "tch-solver-zombie-1",
+            name: "tch-solver-zombie-1",
+            promptName: "msec-security",
+            task: "",
+            challengeId: "removed-challenge",
+            status: "running",
+            createdAt: Date.now() - 5 * 60_000,
+        }
+        manager.listAll = async () => [zombie]
+        const stopContainer = mock(async () => 0)
+        manager.stopContainer = stopContainer
+
+        await runtime.stopSolver("zombie-1")
+
+        expect(stopContainer).toHaveBeenCalledWith("tch-solver-zombie-1")
+        expect(manager.solvers.get("zombie-1")?.status).toBe("stopped")
+        expect(manager.procs.has("zombie-1")).toBe(false)
+    })
 })
 
 describe("RuntimeManager host bridge", () => {

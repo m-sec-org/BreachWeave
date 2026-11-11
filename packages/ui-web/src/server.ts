@@ -1093,6 +1093,7 @@ export async function startWeb(options: WebServerOptions) {
                         authorized ? Promise.resolve([]) : containers.listAll(),
                         projection ? Promise.resolve(projection.stats) : daemon.challenge.refreshStats(challengeId),
                     ])
+                    const lifecycle = await daemon.challenge.getLifecycleProjection(challengeId)
                     let memory: Awaited<ReturnType<typeof daemon.challenge.listMemory>> = []
                     let ideas: Awaited<ReturnType<typeof daemon.challenge.listIdeas>> = []
                     let memoryDiagnostics: unknown = null
@@ -1127,6 +1128,7 @@ export async function startWeb(options: WebServerOptions) {
                         submissions,
                         stats: statsResult.stats,
                         solver_stats: statsResult.solver_stats,
+                        lifecycle,
                         solvers: authorized ? [] : solvers.filter((solver) => solver.challengeId === challengeId),
                         ...(projection ? {
                             authority_work: projectAuthorizedWorkItems(projection.authority.work),

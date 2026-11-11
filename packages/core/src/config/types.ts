@@ -15,6 +15,8 @@ export interface HostRuntimeSettings {
 export interface HostPlannerSettings {
     tickIntervalMs?: number
     staleTimeoutMs?: number
+    /** Hard budget for one planner decision round (model + tool calls). */
+    decisionTimeoutMs?: number
 }
 
 export interface HostAuthSettings {

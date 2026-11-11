@@ -2,6 +2,8 @@ export type HostBridgeAction =
     | "challenge_get_state"
     | "challenge_get_hint"
     | "challenge_submit_report"
+    | "challenge_submit_progress"
+    | "challenge_submit_final"
     | "challenge_is_completed"
     | "challenge_get_solver_review_context"
     | "challenge_submit_solver_review"

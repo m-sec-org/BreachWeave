@@ -18,6 +18,39 @@ function getRequiredString(data: Record<string, unknown>, key: string): string {
     return value.trim()
 }
 
+function getRequiredEnv(getSolverEnvValue: (key: string) => string | undefined, key: string): string {
+    const value = getSolverEnvValue(key)
+    if (typeof value !== "string" || !value.trim()) throw new Error(`${key} is required for lifecycle actions`)
+    return value.trim()
+}
+
+function getLifecycleReportInput(data: Record<string, unknown>, getSolverEnvValue: (key: string) => string | undefined): import("./lifecycle-service").LifecycleReportInput {
+    for (const field of ["assignment_id", "run_id", "generation", "manager_epoch", "scope_revision", "lease_token", "task_snapshot_hash"]) {
+        if (data[field] !== undefined) throw new Error(`${field} 必须由宿主绑定，模型不得提供`)
+    }
+    const report = getRequiredString(data, "report")
+    const payload = {
+        asset_hash: getRequiredString(data, "asset_hash"),
+        report,
+        ...(data.test_results === undefined ? {} : { test_results: getOptionalTestResults(data) }),
+        ...(data.discoveries === undefined ? {} : { discoveries: getOptionalDiscoveries(data) }),
+    }
+    const evidenceSnapshotHash = getSolverEnvValue("TCH_LIFECYCLE_EVIDENCE_SNAPSHOT_HASH")?.trim()
+    return {
+        operationKey: getRequiredEnv(getSolverEnvValue, "TCH_LIFECYCLE_OPERATION_KEY"),
+        assignmentId: getRequiredEnv(getSolverEnvValue, "TCH_LIFECYCLE_ASSIGNMENT_ID"),
+        runId: getRequiredEnv(getSolverEnvValue, "TCH_LIFECYCLE_RUN_ID"),
+        generation: Number(getRequiredEnv(getSolverEnvValue, "TCH_LIFECYCLE_GENERATION")),
+        managerEpoch: Number(getRequiredEnv(getSolverEnvValue, "TCH_LIFECYCLE_MANAGER_EPOCH")),
+        scopeRevision: Number(getRequiredEnv(getSolverEnvValue, "TCH_LIFECYCLE_SCOPE_REVISION")),
+        leaseToken: getRequiredEnv(getSolverEnvValue, "TCH_LIFECYCLE_LEASE_TOKEN"),
+        taskSnapshotHash: getRequiredEnv(getSolverEnvValue, "TCH_LIFECYCLE_TASK_SNAPSHOT_HASH"),
+        reportId: getRequiredEnv(getSolverEnvValue, "TCH_LIFECYCLE_REPORT_ID"),
+        payload,
+        ...(evidenceSnapshotHash ? { evidenceSnapshotHash } : {}),
+    }
+}
+
 function getOptionalString(data: Record<string, unknown>, key: string): string | undefined {
     const value = data[key]
     if (typeof value !== "string") return
@@ -195,9 +228,33 @@ async function handleChallengeAction(
             })
             return { handled: true, data: { challenge_id: challengeId, ...result } }
         }
+        case "challenge_submit_progress": {
+            const challengeId = getRequiredChallengeId(getSolverEnvValue)
+            await assertBoundProject(challengeManager, challengeId, getSolverEnvValue)
+            const result = await challengeManager.submitLifecycleProgress(getLifecycleReportInput(data, getSolverEnvValue))
+            return { handled: true, data: { challenge_id: challengeId, ...result } }
+        }
+        case "challenge_submit_final": {
+            const challengeId = getRequiredChallengeId(getSolverEnvValue)
+            await assertBoundProject(challengeManager, challengeId, getSolverEnvValue)
+            const result = await challengeManager.submitLifecycleFinal(getLifecycleReportInput(data, getSolverEnvValue), [{ kind: "final_report" }])
+            return { handled: true, data: { challenge_id: challengeId, ...result } }
+        }
         case "challenge_is_completed": {
             const challengeId = getRequiredChallengeId(getSolverEnvValue)
             await assertBoundProject(challengeManager, challengeId, getSolverEnvValue)
+            const governedChallenge = typeof (challengeManager as Partial<ChallengeManager>).getChallenge === "function"
+                ? await challengeManager.getChallenge(challengeId)
+                : undefined
+            if (governedChallenge?.project?.mode === "authorized_pentest" || governedChallenge?.mode === "authorized_pentest") {
+                const lifecycle = await challengeManager.getLifecycleProjection(challengeId)
+                return { handled: true, data: {
+                    challenge_id: challengeId,
+                    is_completed: lifecycle.assignmentPhase === "verified_complete",
+                    solver_task_completed: lifecycle.assignmentPhase === "verified_complete" || lifecycle.assignmentPhase === "verified_blocked",
+                    lifecycle,
+                } }
+            }
             const isCompleted = await challengeManager.isChallengeCompleted(challengeId)
             const solverTaskCompleted = await challengeManager.isSolverTaskCompleted(challengeId, solverId)
             const context = await challengeManager.getSolverReviewContext(challengeId, solverId)
